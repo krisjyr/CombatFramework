@@ -2,21 +2,18 @@
 --[[
 	MovementClient.client.lua  (Ch 1.5 Client Prediction, Ch 2 Character Controller)
 
-	- Owns local input -> stance/lean requests.
-	- Predicts immediately using the shared CharacterController (inertia ramp via
-	  :Update(dt)), then asks the server to confirm; snaps back on StanceCorrection/
-	  LeanCorrection if the server disagrees.
-	- Lean is a client-felt camera peek via Humanoid.CameraOffset, smoothly lerped —
-	  purely cosmetic on this end; the actual Left/Right/None STATE is still
-	  server-validated same as stance, since other systems (accuracy, exposure to AI
-	  perception) will want to read a trustworthy LeanState later.
+	CRITICAL CHANGE this pass: Roblox's default character controller is now DISABLED
+	(Controls:Disable() below). It was independently calling Humanoid:Move() every frame
+	and fighting MomentumController's smoothed direction, which is the actual reason
+	turning never visibly worked in any earlier pass. This script is now the ONLY source
+	of movement input for the local player — raw WASD/gamepad via InputController, jump
+	handled manually, camera-relative direction fed straight into CharacterController.
 
-	Keybinds (change freely, this is just a starting mapping):
-		C           - toggle Crouch
-		X           - toggle Prone (from Crouching OR directly from Standing/TacticalWalk)
-		Left Alt    - toggle Tactical Walk
-		Left Shift  - hold for Tactical Sprint
-		Q / E       - hold to lean Left / Right
+	- Predicts stance/lean locally same as before, server confirms/corrects.
+	- Movement direction: InputController (camera-relative raw input) -> CharacterController
+	  :Update(dt, moveDirection) -> MomentumController (speed ramp, turn cut, facing).
+	- Camera: CameraMotion.lua layers Athletic-Operator head-bob/turn-lean/landing-jounce
+	  on top of the default camera, driven by real speed/turn-rate data each frame.
 ]]
 
 local Players = game:GetService("Players")
@@ -31,6 +28,8 @@ local CharacterController = require(CombatFramework.Movement.CharacterController
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local FallTuning = require(CombatFramework.Shared.Config.FallTuning)
 local CameraShake = require(script.Parent.CameraShake)
+local CameraMotion = require(script.Parent.CameraMotion)
+local InputController = require(script.Parent.InputController)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local StanceRequest = Remotes:WaitForChild("StanceRequest") :: RemoteEvent
@@ -41,6 +40,15 @@ local GravitySync = Remotes:WaitForChild("GravitySync") :: RemoteEvent
 
 local player = Players.LocalPlayer
 
+-- Disable Roblox's default movement/jump control ONCE — see file header for why this is
+-- mandatory, not optional. Camera control (CameraModule) is separate and untouched.
+local playerScripts = player:WaitForChild("PlayerScripts")
+local playerModule = require(playerScripts:WaitForChild("PlayerModule"))
+local defaultControls = playerModule:GetControls()
+defaultControls:Disable()
+
+local inputController = InputController.new()
+
 local controller: CharacterController.CharacterControllerInstance? = nil
 local tacticalWalkHeld = false
 
@@ -49,8 +57,6 @@ local LEAN_OFFSET_STUDS = 2.2
 local LEAN_LERP_SPEED = 9
 local currentCameraOffset = Vector3.zero
 
--- Air-rush sound played while falling faster than FallTuning.FastFallVelocity.
--- Replace the placeholder SoundId with a real wind/rush asset before relying on this.
 local windSound = Instance.new("Sound")
 windSound.Name = "CombatFrameworkFallWind"
 windSound.SoundId = "rbxassetid://0"
@@ -69,6 +75,20 @@ player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then
 	onCharacterAdded(player.Character)
 end
+
+-- === Manual jump (Controls:Disable() removes jump input too) ===============
+local function tryJump()
+	if not controller then
+		return
+	end
+	local resolved = controller:Resolve()
+	if resolved.JumpPower <= 0 then
+		return
+	end
+	controller.Humanoid.Jump = true
+end
+
+-- === Stance / Lean (unchanged from before) ==================================
 
 local function requestStance(newStance: string)
 	if not controller then
@@ -110,7 +130,6 @@ local function handleProneToggle()
 	if controller.CurrentStance == "Prone" then
 		requestStance("Crouching")
 	else
-		-- Standing, TacticalWalk, and Crouching can all drop straight to Prone.
 		requestStance("Prone")
 	end
 end
@@ -145,6 +164,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		requestLean("Left")
 	elseif input.KeyCode == Enum.KeyCode.E then
 		requestLean("Right")
+	elseif input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
+		tryJump()
 	end
 end)
 
@@ -155,8 +176,6 @@ UserInputService.InputEnded:Connect(function(input, _gameProcessed)
 		end
 	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
 		if controller then
-			-- Only clear if THIS key was the one currently leaning (don't cancel a Right
-			-- lean because the player happened to also tap Q on the way there, etc.)
 			local shouldClear = (input.KeyCode == Enum.KeyCode.Q and controller.LeanState == "Left")
 				or (input.KeyCode == Enum.KeyCode.E and controller.LeanState == "Right")
 			if shouldClear then
@@ -179,11 +198,6 @@ LeanCorrection.OnClientEvent:Connect(function(correctedLean: CharacterController
 	end
 end)
 
--- Gravity zones (Ch 8.4, 15.4-15.5) are detected server-side via QuickZone, but the client
--- is the one that actually owns physics for its own character now (MomentumController's
--- VectorForce is what makes a Gravity override physically real) — so the server mirrors
--- every SetGravityOverride/ClearGravityOverride it makes for this player down through this
--- remote, and we replay the same call on our own local CharacterController here.
 GravitySync.OnClientEvent:Connect(function(action: string, gravity: Vector3?, sourceId: string, priority: number?)
 	if not controller then
 		return
@@ -195,8 +209,7 @@ GravitySync.OnClientEvent:Connect(function(action: string, gravity: Vector3?, so
 	end
 end)
 
--- Ambient air-rush sound + continuous camera rumble while falling fast (starts the
--- moment downward speed crosses FallTuning.FastFallVelocity, stops the moment the fall ends).
+-- === Fall feedback (unchanged) ===============================================
 local windTween: Tween? = nil
 
 CombatEvents.FastFallBegan:Connect(function(firingPlayer: Player, _downwardSpeed: number)
@@ -231,9 +244,6 @@ CombatEvents.FastFallEnded:Connect(function(firingPlayer: Player)
 	CameraShake.SetContinuous("FastFall", 0)
 end)
 
--- Landing impact: a one-off camera shake scaled by how fast the character was falling,
--- independent of whether it actually dealt damage (a fast-but-safe landing still shakes
--- a little; a lethal one shakes hard).
 CombatEvents.FallImpact:Connect(function(firingPlayer: Player, peakFallSpeed: number, _damageApplied: number)
 	if firingPlayer ~= player then
 		return
@@ -247,14 +257,36 @@ CombatEvents.FallImpact:Connect(function(firingPlayer: Player, peakFallSpeed: nu
 		)
 		CameraShake.Shake(t * FallTuning.MaxImpactShakeMagnitude, FallTuning.MaxImpactShakeDuration)
 	end
+
+	-- Athletic-Operator landing "jounce" — a real spring dip, separate from (and in
+	-- addition to) the random-impulse CameraShake above.
+	CameraMotion.OnLanding(peakFallSpeed)
 end)
 
+-- === Camera motion: feed real state every frame ==============================
+CameraMotion.Start(function(): (number, number, number, boolean, boolean, Vector3)
+	if not controller then
+		return 0, 1, 0, false, false, Vector3.zero
+	end
+	local planarSpeed = controller:GetPlanarSpeed()
+	local referenceSpeed = controller:GetReferenceSpeed()
+	local turnRate = controller:GetTurnRateDegPerSec()
+	local isMoving = controller:IsMoving()
+	local isSprinting = controller.CurrentStance == "TacticalSprint"
+	local moveDirection = controller:GetMoveDirection()
+	return planarSpeed, referenceSpeed, turnRate, isMoving, isSprinting, moveDirection
+end)
+
+-- === Main update loop =========================================================
 RunService.Heartbeat:Connect(function(dt: number)
 	if not controller then
 		return
 	end
 
-	controller:Update(dt)
+	local camera = workspace.CurrentCamera
+	local moveDirection = if camera then inputController:GetWorldMoveDirection(camera) else Vector3.zero
+
+	controller:Update(dt, moveDirection)
 
 	-- Lean camera feel: smoothly lerp Humanoid.CameraOffset sideways based on LeanState.
 	local targetOffset = Vector3.zero

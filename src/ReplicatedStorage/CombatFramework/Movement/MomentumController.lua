@@ -1,35 +1,33 @@
 --!strict
 --[[
-	MomentumController.lua  (Ch 2 — "real" directional inertia, Assassin's Creed / Tom Clancy feel)
+	MomentumController.lua  (Ch 2 — real turning + pivot-on-reversal, v9)
 
-	WHY THIS EXISTS: Roblox's Humanoid actively re-asserts its own WalkSpeed * MoveDirection
-	velocity every physics step. You cannot make a Humanoid-driven character travel in a
-	direction that lags behind input (the "carving a turn" feel) by only setting WalkSpeed —
-	the character will always immediately travel in whatever MoveDirection currently is. The
-	standard, safe way around this: pin Humanoid.WalkSpeed near zero so its own controller
-	stops fighting you, then drive X/Z velocity yourself via a LinearVelocity constraint,
-	leaving Y (gravity, jumping) completely untouched — Humanoid's jump/fall state machine
-	and vertical physics keep working exactly as before, so FallService, stance auto-jump
-	transitions, and AnimationController don't need to know this exists.
+	NEW THIS PASS — fixes the "u-turn on a 180" bug: the moderate-turn dip (previous pass)
+	compares THIS frame's input direction to LAST frame's. A sudden S-press or an instant
+	camera flip shows up as one big single-frame delta and gets caught fine — but a FAST
+	(not instant) 180 mouse flick spreads the same total rotation across several frames,
+	so each individual frame's delta can stay under the moderate-turn threshold even
+	though the character's desired direction has completely reversed. That let it fall
+	through to the smooth rate-limited facing rotation, which — because it's rate-limited
+	— sweeps the body through a visible arc while still carrying speed. That sweep IS the
+	u-turn.
 
-	MOMENTUM MODEL: `CurrentVelocity` is a real planar (Y=0) vector that must be STEERED
-	toward the desired velocity, not snapped to it:
-	  - Magnitude (speed) still ramps via Acceleration/Deceleration, same idea as before.
-	  - DIRECTION is separately steered at a turn rate (degrees/sec) that shrinks the faster
-	    you're already going — near a stop you can spin to face any direction almost
-	    instantly, but redirecting sharply at a sprint takes real time and "carves" a curve
-	    instead of snapping. That's the actual Assassin's Creed / Tom Clancy feel: you can't
-	    juke instantly at full speed.
-	  - Releasing input doesn't erase the direction — the character keeps sliding along its
-	    last heading while speed bleeds off via Deceleration, then stops. No snap-to-zero.
+	FIX: the pivot decision no longer looks at frame-to-frame input deltas at all. It
+	compares the DESIRED input direction against the character's CURRENT FACING (which
+	deliberately lags behind fast input) every frame. That deviation grows correctly
+	whether the flip was instant (S key: facing vs. new input is 180 immediately) or fast
+	but gradual (camera spin: facing lags further behind each frame until the deviation
+	crosses the pivot threshold mid-spin) — so both cases are caught the same way.
 
-	Also owns a VectorForce that counteracts/replaces default engine gravity on the Y axis
-	only, so a per-character Gravity override (Ch 2.3, Low/High/Zero-G Movement Profiles)
-	actually takes physical effect — this was previously a commented-out TODO.
-
-	OWNERSHIP: only ever construct this on the side that owns real physics for the character
-	— the controlling client for a player, or the server for an AI/NPC entity (Ch 13).
-	Constructing it where physics isn't owned would be inert or fight the owning side.
+	At/above PIVOT_ANGLE_DEG of facing-vs-input deviation: PIVOT. Facing stays LOCKED to
+	the old heading (no rotation at all) while speed brakes hard toward near-zero via
+	PIVOT_BRAKE_MULTIPLIER; the instant speed drops below PIVOT_RELEASE_SPEED, facing
+	SNAPS to the (latest) desired direction and normal acceleration takes over on the very
+	next Update(). Below that threshold: unchanged from the previous pass — smooth
+	rate-limited facing rotation + the turn-slowdown speed-cap tween (based on
+	previous-vs-new INPUT delta, which is the right signal for "how sharp was this
+	specific frame's correction," separate from the pivot's "how far off is facing
+	overall" signal).
 ]]
 
 local Workspace = game:GetService("Workspace")
@@ -42,38 +40,45 @@ export type MomentumControllerInstance = typeof(setmetatable(
 		RootPart: BasePart,
 		Humanoid: Humanoid,
 		Attachment: Attachment,
-		LinearVelocity: LinearVelocity,
 		VectorForce: VectorForce,
-		CurrentVelocity: Vector3,
+		_currentSpeed: number,
+		_facingDirection: Vector3?,
+		_previousInputDirection: Vector3?,
+		_lastTurnRateDegPerSec: number,
+		_turnSpeedCap: number,
+		_turnSpeedCapTimer: number,
+		_turnSpeedCapActive: boolean,
+		_pivoting: boolean,
+		_pivotTargetDirection: Vector3?,
 	},
 	MomentumController
 ))
 
--- Turning feels responsive near a stop, and increasingly resists a sharp direction change
--- the faster you're already going.
-local BASE_TURN_RATE_DEG_PER_SEC = 260 -- turn rate available at (near) zero speed
-local MIN_TURN_RATE_FRACTION_AT_FULL_SPEED = 0.28 -- fraction of BASE_TURN_RATE retained at FULL_SPEED_REFERENCE
-local FULL_SPEED_REFERENCE = 20 -- studs/s; speed at which turn rate bottoms out at the fraction above
-local STOP_SNAP_EPSILON = 0.05 -- below this speed, treat direction as undefined (avoids NaN from a zero vector)
 local INPUT_MAGNITUDE_THRESHOLD = 0.05
+local STOP_EPSILON = 0.05
 
-local MAX_PLANAR_FORCE = 1e6 -- effectively "as much force as needed" for LinearVelocity to hit its target
+-- Moderate-turn dip (unchanged from previous pass): frame-to-frame INPUT angle change
+-- beyond this starts a smooth speed-cap tween, still using the normal rotate-toward
+-- facing below.
+local TURN_CUT_START_ANGLE_DEG = 25
+local TURN_SLOWDOWN_HOLD_TIME = 0.2
+
+-- Pivot (near-reversal) trigger: FACING-vs-DESIRED deviation at/above this triggers a
+-- hard plant-and-pivot instead of a rotate-through-the-arc. Comfortably above the
+-- moderate-turn threshold so ordinary sharp turns still get the smooth tween.
+local PIVOT_ANGLE_DEG = 130
+local PIVOT_RELEASE_SPEED = 1.0 -- studs/s; below this, the pivot completes and facing snaps
+local PIVOT_BRAKE_MULTIPLIER = 3 -- brakes harder than a normal stop, for a crisp "plant"
+
+local STUCK_GUARD_BUFFER = 5
+
+local MAX_TURN_RATE_DEG_PER_SEC = 720
+local MIN_TURN_RATE_DEG_PER_SEC = 240
 
 function MomentumController.new(rootPart: BasePart, humanoid: Humanoid): MomentumControllerInstance
 	local attachment = Instance.new("Attachment")
-	attachment.Name = "CombatFrameworkMomentumAttachment"
+	attachment.Name = "CombatFrameworkGravityAttachment"
 	attachment.Parent = rootPart
-
-	local linearVelocity = Instance.new("LinearVelocity")
-	linearVelocity.Name = "CombatFrameworkPlanarVelocity"
-	linearVelocity.Attachment0 = attachment
-	linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
-	linearVelocity.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-	-- Zero force on Y: this constraint NEVER fights gravity or jumping, only X/Z.
-	linearVelocity.MaxAxesForce = Vector3.new(MAX_PLANAR_FORCE, 0, MAX_PLANAR_FORCE)
-	linearVelocity.VectorVelocity = Vector3.zero
-	linearVelocity.Enabled = true
-	linearVelocity.Parent = attachment
 
 	local vectorForce = Instance.new("VectorForce")
 	vectorForce.Name = "CombatFrameworkGravityOverrideForce"
@@ -83,90 +88,198 @@ function MomentumController.new(rootPart: BasePart, humanoid: Humanoid): Momentu
 	vectorForce.Enabled = true
 	vectorForce.Parent = attachment
 
-	-- Humanoid's own walk controller must stop trying to move the character (it would
-	-- otherwise fight the LinearVelocity constraint every physics step); a near-zero
-	-- WalkSpeed hands planar movement fully to our constraint while leaving jumping,
-	-- falling, and Humanoid state detection completely alone.
-	humanoid.WalkSpeed = 0.01
+	humanoid.WalkSpeed = 0
 
 	return setmetatable({
 		RootPart = rootPart,
 		Humanoid = humanoid,
 		Attachment = attachment,
-		LinearVelocity = linearVelocity,
 		VectorForce = vectorForce,
-		CurrentVelocity = Vector3.zero,
+		_currentSpeed = 0,
+		_facingDirection = nil,
+		_previousInputDirection = nil,
+		_lastTurnRateDegPerSec = 0,
+		_turnSpeedCap = 0,
+		_turnSpeedCapTimer = 0,
+		_turnSpeedCapActive = false,
+		_pivoting = false,
+		_pivotTargetDirection = nil,
 	}, MomentumController) :: any
 end
 
---- Steers CurrentVelocity toward (moveDirection.Unit * targetSpeed): direction is turned
---- at a speed-dependent rate rather than snapped, magnitude ramps via
---- acceleration/deceleration exactly like before. Pushes the result onto the LinearVelocity
---- constraint every call.
 function MomentumController.Update(
 	self: MomentumControllerInstance,
 	dt: number,
 	moveDirection: Vector3,
 	targetSpeed: number,
 	acceleration: number,
-	deceleration: number
+	braking: number,
+	turnCutStrength: number
 )
-	local horizontalInput = Vector3.new(moveDirection.X, 0, moveDirection.Z)
-	local hasInput = horizontalInput.Magnitude > INPUT_MAGNITUDE_THRESHOLD
+	local hasInput = moveDirection.Magnitude > INPUT_MAGNITUDE_THRESHOLD
+	local inputDirection: Vector3? = if hasInput then moveDirection.Unit else nil
 
-	local currentSpeed = self.CurrentVelocity.Magnitude
-	local currentDirection: Vector3? = if currentSpeed > STOP_SNAP_EPSILON then self.CurrentVelocity / currentSpeed else nil
-
-	local desiredDirection: Vector3? = if hasInput then horizontalInput.Unit else currentDirection
-	local desiredSpeed = if hasInput then targetSpeed else 0
-
-	-- Magnitude ramp (same idea as the old scalar system).
-	local newSpeed = currentSpeed
-	if newSpeed < desiredSpeed then
-		newSpeed = math.min(desiredSpeed, newSpeed + acceleration * dt)
-	elseif newSpeed > desiredSpeed then
-		newSpeed = math.max(desiredSpeed, newSpeed - deceleration * dt)
+	-- === Pivot detection: FACING vs DESIRED deviation, not frame-to-frame input delta ===
+	local facingDeviationDeg = 0
+	if hasInput and inputDirection and self._facingDirection then
+		local dot = math.clamp((self._facingDirection :: Vector3):Dot(inputDirection :: Vector3), -1, 1)
+		facingDeviationDeg = math.deg(math.acos(dot))
 	end
 
-	-- Direction steering: limited turn rate, tighter the faster you're already going.
-	local newDirection = currentDirection
-	if desiredDirection then
-		if not currentDirection then
-			-- Starting from a dead stop: no prior direction to steer from, take input directly.
-			newDirection = desiredDirection
+	if hasInput and facingDeviationDeg >= PIVOT_ANGLE_DEG and not self._pivoting then
+		self._pivoting = true
+	end
+
+	if self._pivoting then
+		if not hasInput then
+			-- Input released mid-pivot: fall through to the normal decel-to-stop path
+			-- below instead of holding a pivot with nothing to release into.
+			self._pivoting = false
+			self._pivotTargetDirection = nil
 		else
-			local speedFraction = math.clamp(currentSpeed / FULL_SPEED_REFERENCE, 0, 1)
-			local turnRateFraction = 1 - (1 - MIN_TURN_RATE_FRACTION_AT_FULL_SPEED) * speedFraction
-			local turnRateRadPerSec = math.rad(BASE_TURN_RATE_DEG_PER_SEC * turnRateFraction)
-			local maxTurn = turnRateRadPerSec * dt
-
-			local angleBetween = math.acos(math.clamp((currentDirection :: Vector3):Dot(desiredDirection), -1, 1))
-
-			if angleBetween <= maxTurn or angleBetween < 1e-4 then
-				newDirection = desiredDirection
-			else
-				-- Rotate currentDirection toward desiredDirection by maxTurn radians around
-				-- world-up (planar turning only, character never pitches/rolls from this).
-				local cross = (currentDirection :: Vector3):Cross(desiredDirection)
-				local turnSign = if cross.Y >= 0 then 1 else -1
-				local rotation = CFrame.fromAxisAngle(Vector3.yAxis, maxTurn * turnSign)
-				newDirection = (rotation * (currentDirection :: Vector3)).Unit
-			end
+			-- Keep tracking the latest desired direction while braking, so releasing
+			-- lands on wherever input currently points, not a stale snapshot from the
+			-- moment the pivot started.
+			self._pivotTargetDirection = inputDirection
 		end
 	end
 
-	self.CurrentVelocity = if newDirection then (newDirection :: Vector3) * newSpeed else Vector3.zero
-	self.LinearVelocity.VectorVelocity = self.CurrentVelocity
+	if self._pivoting then
+		-- === PIVOT: brake hard, facing locked, no rotation/tween this frame ===
+		local pivotBrakeRate = braking * PIVOT_BRAKE_MULTIPLIER
+		local newSpeed = math.max(0, self._currentSpeed - pivotBrakeRate * dt)
+		self._currentSpeed = newSpeed
+		self.Humanoid.WalkSpeed = newSpeed
+
+		if newSpeed <= PIVOT_RELEASE_SPEED then
+			-- Braked down enough: snap facing straight to the new direction and release
+			-- the pivot. Normal acceleration takes over starting next Update().
+			self._facingDirection = self._pivotTargetDirection or self._facingDirection
+			self._pivoting = false
+			self._pivotTargetDirection = nil
+		end
+
+		if self._facingDirection then
+			self.Humanoid:Move(self._facingDirection :: Vector3, false)
+		end
+
+		self._lastTurnRateDegPerSec = 0
+		self._previousInputDirection = inputDirection
+		return
+	end
+
+	-- === Speed: moderate turn slowdown (smooth tween, unchanged from previous pass) ===
+	if hasInput and inputDirection and self._previousInputDirection and self._currentSpeed > STOP_EPSILON then
+		local previousDirection = self._previousInputDirection :: Vector3
+		local newDirection = inputDirection :: Vector3
+
+		local dot = math.clamp(previousDirection:Dot(newDirection), -1, 1)
+		local angleDeg = math.deg(math.acos(dot))
+
+		if angleDeg > TURN_CUT_START_ANGLE_DEG then
+			local angleSeverity = math.clamp(
+				(angleDeg - TURN_CUT_START_ANGLE_DEG) / (180 - TURN_CUT_START_ANGLE_DEG),
+				0,
+				1
+			)
+			local speedFraction = if targetSpeed > 0.01 then math.clamp(self._currentSpeed / targetSpeed, 0, 1.25) else 1
+			local cutAmount = math.clamp(angleSeverity * turnCutStrength * speedFraction, 0, 1)
+			local newCap = self._currentSpeed * (1 - cutAmount)
+
+			if not self._turnSpeedCapActive or newCap < self._turnSpeedCap then
+				self._turnSpeedCap = newCap
+			end
+			self._turnSpeedCapTimer = TURN_SLOWDOWN_HOLD_TIME
+			self._turnSpeedCapActive = true
+		end
+	end
+
+	if self._turnSpeedCapActive then
+		self._turnSpeedCapTimer -= dt
+		if self._turnSpeedCapTimer <= 0 then
+			self._turnSpeedCapActive = false
+		end
+	end
+
+	-- === Speed: ramp toward target, OR decay to a stop on input loss ========
+	local target = if hasInput then targetSpeed else 0
+	if self._turnSpeedCapActive then
+		target = math.min(target, self._turnSpeedCap)
+	end
+
+	local newSpeed = self._currentSpeed
+	if newSpeed < target then
+		newSpeed = math.min(target, newSpeed + acceleration * dt)
+	elseif newSpeed > target then
+		newSpeed = math.max(target, newSpeed - braking * dt)
+	end
+
+	if hasInput then
+		local actualVelocity = self.RootPart.AssemblyLinearVelocity
+		local actualSpeed = Vector3.new(actualVelocity.X, 0, actualVelocity.Z).Magnitude
+		newSpeed = math.min(newSpeed, actualSpeed + STUCK_GUARD_BUFFER)
+	end
+
+	if newSpeed < STOP_EPSILON then
+		newSpeed = 0
+	end
+
+	self._currentSpeed = newSpeed
+	self.Humanoid.WalkSpeed = newSpeed
+
+	-- === Facing: rate-limited rotation toward input direction (moderate turns only) ===
+	if hasInput and inputDirection then
+		local desired = inputDirection :: Vector3
+		local previousFacing = self._facingDirection
+
+		if not previousFacing then
+			self._facingDirection = desired
+			self._lastTurnRateDegPerSec = 0
+		else
+			local currentFacing = previousFacing :: Vector3
+			local speedFraction = if targetSpeed > 0.01 then math.clamp(newSpeed / targetSpeed, 0, 1) else 0
+			local turnRateDegPerSec = MAX_TURN_RATE_DEG_PER_SEC
+				- (MAX_TURN_RATE_DEG_PER_SEC - MIN_TURN_RATE_DEG_PER_SEC) * speedFraction
+			local maxTurnThisFrame = math.rad(turnRateDegPerSec) * dt
+
+			local facingDot = math.clamp(currentFacing:Dot(desired), -1, 1)
+			local angleBetween = math.acos(facingDot)
+
+			local appliedAngle: number
+			local turnSign: number
+
+			if angleBetween <= maxTurnThisFrame or angleBetween < 1e-4 then
+				self._facingDirection = desired
+				appliedAngle = angleBetween
+				local cross = currentFacing:Cross(desired)
+				turnSign = if cross.Y >= 0 then 1 else -1
+			else
+				local cross = currentFacing:Cross(desired)
+				turnSign = if cross.Y >= 0 then 1 else -1
+				local rotation = CFrame.fromAxisAngle(Vector3.yAxis, maxTurnThisFrame * turnSign)
+				self._facingDirection = (rotation * currentFacing).Unit
+				appliedAngle = maxTurnThisFrame
+			end
+
+			self._lastTurnRateDegPerSec = if dt > 0 then (math.deg(appliedAngle) / dt) * turnSign else 0
+		end
+
+		self.Humanoid:Move(self._facingDirection :: Vector3, false)
+	else
+		self._lastTurnRateDegPerSec = 0
+	end
+
+	self._previousInputDirection = inputDirection
 end
 
---- Applies (or clears) a Y-axis-only counter-gravity force so the character's effective
---- fall acceleration matches `gravityVector.Y` instead of the engine default
---- (`workspace.Gravity`). Only ever touches Y — never reorients "down" sideways (that's
---- future Surface Adhesion work, Ch 2.4).
+function MomentumController.GetTurnRateDegPerSec(self: MomentumControllerInstance): number
+	return self._lastTurnRateDegPerSec
+end
+
 function MomentumController.SetGravity(self: MomentumControllerInstance, gravityVector: Vector3)
 	local mass = self.RootPart.AssemblyMass
 	local desiredAccelY = gravityVector.Y
-	local engineAccelY = -Workspace.Gravity -- workspace.Gravity is a positive magnitude pulling down
+	local engineAccelY = -Workspace.Gravity
 	self.VectorForce.Force = Vector3.new(0, (desiredAccelY - engineAccelY) * mass, 0)
 end
 
