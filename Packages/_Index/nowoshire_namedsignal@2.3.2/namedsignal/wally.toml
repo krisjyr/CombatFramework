@@ -1,0 +1,28 @@
+[package]
+name = "nowoshire/namedsignal"
+description = "A Signal implementation for Luau, with a nice balance of ergonomics, performance, and features."
+version = "2.3.2"
+license = "MIT"
+authors = ["averlyst"]
+
+registry = "https://github.com/UpliftGames/wally-index"
+homepage = "https://personal.averlyst.dev/NamedSignal/"
+repository = "https://github.com/averlyst/NamedSignal"
+
+realm = "shared"
+
+# Include acts like an exclusion-exception list, it doesn't automatically exclude non-included files
+# Use * to exclude everything, so include has the intuitive allowlist behavior.
+exclude = ["*"]
+
+# wally seems to also recurse with src/* (?)
+# but I'm using src/** for clarity as it also seemingly works.
+include = [
+	"src",
+	"src/**",
+	"wally.lock",
+	"wally.toml",
+	"default.project.json",
+	"LICENSE",
+	"README.md",
+]

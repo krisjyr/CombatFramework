@@ -1,0 +1,11 @@
+[package]
+name = "yourname/combat-framework"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+namedsignal = "nowoshire/namedsignal@2.3.2"
+fastcast2 = "weenachuangkud/fastcast2@0.1.3"
+quickzone = "ldgerrits/quickzone@1.4.6"
+cmdr = "evaera/cmdr@1.11.0"

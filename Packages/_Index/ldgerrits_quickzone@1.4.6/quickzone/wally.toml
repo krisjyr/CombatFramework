@@ -1,0 +1,31 @@
+[package]
+name = "ldgerrits/quickzone"
+description = "A high-performance, physics-free spatial query library for Roblox. Maintain 60 FPS with 1M+ zones."
+version = "1.4.6"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+license = "MIT"
+exclude = [
+    ".github",
+    ".vscode",
+    ".gitattributes",
+    ".gitignore",
+    ".styluaignore",
+    "README.md",
+    "moonwave.toml",
+    "rokit.toml",
+    "stylua.toml",
+    "selene.toml",
+    "sourcemap.json",
+    "package.json",
+    "examples.project.json",
+    "serve.project.json",
+    "test.project.json",
+    "build",
+    "build.rbxl",
+    "build.rbxl.lock",
+    "examples",
+    "docs",
+    "src/index.d.ts",
+    "tests"
+]

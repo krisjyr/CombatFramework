@@ -1,0 +1,51 @@
+{
+  "name": "CombatFramework",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "CombatFramework": {
+        "$path": "src/ReplicatedStorage/CombatFramework"
+      },
+      "Packages": {
+        "$path": "Packages"
+      },
+      "CombatRemotes": {
+        "$className": "Folder",
+        "StanceRequest": {
+          "$className": "RemoteEvent"
+        },
+        "StanceCorrection": {
+          "$className": "RemoteEvent"
+        },
+        "LeanRequest": {
+          "$className": "RemoteEvent"
+        },
+        "LeanCorrection": {
+          "$className": "RemoteEvent"
+        },
+        "GravitySync": {
+          "$className": "RemoteEvent"
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "CombatFramework": {
+        "$path": "src/ServerScriptService/CombatFramework"
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "CombatFramework": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/CombatFramework"
+        }
+      }
+    }
+  }
+}
