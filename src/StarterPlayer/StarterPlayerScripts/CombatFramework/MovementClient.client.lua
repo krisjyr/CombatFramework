@@ -27,9 +27,12 @@ local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local CharacterController = require(CombatFramework.Movement.CharacterController)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local FallTuning = require(CombatFramework.Shared.Config.FallTuning)
+local CameraInertiaController = require(CombatFramework.Movement.CameraInertiaController)
 local CameraShake = require(script.Parent.CameraShake)
 local CameraMotion = require(script.Parent.CameraMotion)
 local InputController = require(script.Parent.InputController)
+local FirstPersonVisibility = require(script.Parent.FirstPersonVisibility)
+local FirstPersonZoomController = require(script.Parent.FirstPersonZoomController)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local StanceRequest = Remotes:WaitForChild("StanceRequest") :: RemoteEvent
@@ -64,10 +67,14 @@ windSound.Looped = true
 windSound.Volume = 0
 windSound.Parent = SoundService
 
+
+local cameraInertia: CameraInertiaController.CameraInertiaControllerInstance? = nil
+
 local function onCharacterAdded(character: Model)
-	character:WaitForChild("Humanoid")
-	character:WaitForChild("HumanoidRootPart")
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	local rootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
 	controller = CharacterController.new(player, character, true)
+	cameraInertia = CameraInertiaController.new(workspace.CurrentCamera, humanoid, rootPart, controller)
 	currentCameraOffset = Vector3.zero
 end
 
@@ -166,6 +173,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		requestLean("Right")
 	elseif input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
 		tryJump()
+	elseif input.KeyCode == Enum.KeyCode.RightAlt and cameraInertia then
+		cameraInertia:SetFreelooking(true)
 	end
 end)
 
@@ -182,6 +191,8 @@ UserInputService.InputEnded:Connect(function(input, _gameProcessed)
 				requestLean("None")
 			end
 		end
+	elseif input.KeyCode == Enum.KeyCode.RightAlt and cameraInertia then
+		cameraInertia:SetFreelooking(false)
 	end
 end)
 
@@ -278,6 +289,47 @@ CameraMotion.Start(function(): (number, number, number, boolean, boolean, Vector
 end)
 
 -- === Main update loop =========================================================
+RunService:BindToRenderStep("CombatFrameworkFreelookCorrection", Enum.RenderPriority.Character.Value, function()
+	if cameraInertia and cameraInertia.Enabled and cameraInertia.Freelooking then
+		local moveDir = cameraInertia.Humanoid.MoveDirection
+		if moveDir.Magnitude > 0.01 then
+			local yawDelta = cameraInertia.BodyYaw - cameraInertia.Yaw
+			local corrected = CFrame.fromAxisAngle(Vector3.yAxis, yawDelta) * moveDir
+			cameraInertia.Humanoid:Move(corrected, false)
+		end
+	end
+end)
+
+RunService:BindToRenderStep("CombatFrameworkCameraInertia", Enum.RenderPriority.Camera.Value, function(dt)
+	local wantFP = FirstPersonZoomController.IsEnabled()
+	local camera = workspace.CurrentCamera
+
+	if wantFP then
+		if cameraInertia and not cameraInertia.Enabled then
+			cameraInertia:Enable()
+		end
+		-- Force it back every frame regardless of what touched CameraType since —
+		-- cheap, idempotent, and closes every "something reset it" case at once.
+		if camera.CameraType ~= Enum.CameraType.Scriptable then
+			camera.CameraType = Enum.CameraType.Scriptable
+		end
+	else
+		if cameraInertia and cameraInertia.Enabled then
+			cameraInertia:Disable()
+			FirstPersonZoomController.ApplyThirdPersonZoom()
+		end
+	end
+
+	if cameraInertia and cameraInertia.Enabled then
+		cameraInertia:Update(dt)
+	end
+
+	local char = player.Character
+	if char then
+		FirstPersonVisibility.Apply(char, cameraInertia ~= nil and cameraInertia.Enabled)
+	end
+end)
+
 RunService.Heartbeat:Connect(function(dt: number)
 	if not controller then
 		return
@@ -298,5 +350,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 
 	local alpha = math.clamp(LEAN_LERP_SPEED * dt, 0, 1)
 	currentCameraOffset = currentCameraOffset:Lerp(targetOffset, alpha)
-	controller.Humanoid.CameraOffset = currentCameraOffset
+	if cameraInertia then
+		cameraInertia:SetLeanOffset(currentCameraOffset)
+	end
 end)

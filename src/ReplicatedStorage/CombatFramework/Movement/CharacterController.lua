@@ -53,7 +53,7 @@ export type CharacterControllerInstance = typeof(setmetatable(
 
 local BASE_STANCE = "Standing"
 local BASE_PROFILE = "StandardHuman"
-local BASE_HIP_HEIGHT = 2
+local BASE_HIP_HEIGHT = 2.5
 local MOVE_SPEED_THRESHOLD = 0.5
 
 function CharacterController.new(player: Player, character: Model, ownsPhysics: boolean): CharacterControllerInstance
@@ -172,6 +172,7 @@ function CharacterController._applyStanceModifiers(self: CharacterControllerInst
 	self.Modifiers:Add({ sourceId = "Stance", key = "CanAim", modifierType = "Boolean", value = def.CanAim })
 	self.Modifiers:Add({ sourceId = "Stance", key = "CanFire", modifierType = "Boolean", value = def.CanFire })
 	self.Modifiers:Add({ sourceId = "Stance", key = "CanLean", modifierType = "Boolean", value = def.CanLean })
+	self.Modifiers:Add({ sourceId = "Stance", key = "CameraControlMultiplier", modifierType = "Numeric", op = "Multiply", value = def.CameraControlMultiplier })
 end
 
 -- === Lean ================================================================
