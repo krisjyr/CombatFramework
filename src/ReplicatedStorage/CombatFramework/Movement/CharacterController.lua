@@ -79,6 +79,7 @@ function CharacterController.new(player: Player, character: Model, ownsPhysics: 
 	}, CharacterController) :: any
 
 	self:_applyStanceModifiers(BASE_STANCE)
+	character:SetAttribute("CombatStance", BASE_STANCE)
 
 	return self
 end
@@ -148,6 +149,7 @@ function CharacterController.TryChangeStance(self: CharacterControllerInstance, 
 	local old = self.CurrentStance
 	self.CurrentStance = newStance
 	self:_applyStanceModifiers(newStance)
+	self.Character:SetAttribute("CombatStance", newStance)
 
 	if not Stances[newStance].CanLean and self.LeanState ~= "None" then
 		self:TrySetLean("None")

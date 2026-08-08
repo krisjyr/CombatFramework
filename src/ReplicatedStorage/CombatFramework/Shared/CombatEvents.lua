@@ -37,6 +37,9 @@ local CombatEvents = {
 	-- Fired on the CLIENT after local prediction changes lean, and again on the SERVER
 	-- after validation confirms it (same client/server pattern as StanceChanged).
 	LeanChanged = Signal.new<<(player: Player, direction: string) -> ()>>(),
+
+	Ragdolled = Signal.new<<(character: Model) -> ()>>(),
+	RagdollEnded = Signal.new<<(character: Model) -> ()>>(),
 }
 
 return CombatEvents

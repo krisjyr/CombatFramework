@@ -173,7 +173,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		requestLean("Right")
 	elseif input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
 		tryJump()
-	elseif input.KeyCode == Enum.KeyCode.RightAlt and cameraInertia then
+	elseif input.KeyCode == Enum.KeyCode.LeftControl and cameraInertia then
 		cameraInertia:SetFreelooking(true)
 	end
 end)
@@ -191,7 +191,7 @@ UserInputService.InputEnded:Connect(function(input, _gameProcessed)
 				requestLean("None")
 			end
 		end
-	elseif input.KeyCode == Enum.KeyCode.RightAlt and cameraInertia then
+	elseif input.KeyCode == Enum.KeyCode.LeftControl and cameraInertia then
 		cameraInertia:SetFreelooking(false)
 	end
 end)
