@@ -53,7 +53,7 @@ export type CharacterControllerInstance = typeof(setmetatable(
 
 local BASE_STANCE = "Standing"
 local BASE_PROFILE = "StandardHuman"
-local BASE_HIP_HEIGHT = 2.5
+local BASE_HIP_HEIGHT = 2.3
 local MOVE_SPEED_THRESHOLD = 0.5
 
 function CharacterController.new(player: Player, character: Model, ownsPhysics: boolean): CharacterControllerInstance

@@ -16,10 +16,15 @@
 	client (including this one, for everyone else's character) reads that attribute back
 	off each character and feeds it into that character's own IKLegController.
 
+	The SAME `lookDirection` value is now also fed into TorsoTiltController (previously
+	local-player-only -- it can drive its idle Waist follow / TacticalWalk tilt / lean
+	roll for remote players too, for free, off this same attribute). CombatLean is read
+	the same way CombatStance already is, for the lean-roll piece.
+
 	Also listens for the "Ragdolled" attribute (set by RagdollService.lua, server-
-	authoritative) to disable foot-ground IK while a character is ragdolled, so this
-	system doesn't fight the ragdoll's own IKControls (RagdollService.lua drives its own
-	rope-target IKControls for that state).
+	authoritative) to disable foot-ground IK AND torso tilt/lean while a character is
+	ragdolled, so neither system fights the ragdoll's own IKControls (RagdollService.lua
+	drives its own rope-target IKControls for that state).
 ]]
 
 local Players = game:GetService("Players")
@@ -29,6 +34,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local IKLegController = require(CombatFramework.Movement.IKLegController)
 local TorsoTiltController = require(CombatFramework.Movement.TorsoTiltController)
+
+local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
+local LookDirectionUpdate = Remotes:WaitForChild("LookDirectionUpdate") :: RemoteEvent
 
 local localPlayer = Players.LocalPlayer
 
@@ -75,10 +83,17 @@ local function setup(player: Player, character: Model)
     local torsoController = TorsoTiltController.new(character, player == localPlayer)
 
     local attributeConn = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
-        legController:SetEnabled(character:GetAttribute("Ragdolled") ~= true)
+        local ragdolled = character:GetAttribute("Ragdolled") == true
+        legController:SetEnabled(not ragdolled)
+        if torsoController then
+            torsoController:SetEnabled(not ragdolled)
+        end
     end)
     if character:GetAttribute("Ragdolled") == true then
         legController:SetEnabled(false)
+        if torsoController then
+            torsoController:SetEnabled(false)
+        end
     end
 
     entries[character] = {
@@ -115,29 +130,39 @@ Players.PlayerRemoving:Connect(function(player)
     end
 end)
 
+local LOOK_SEND_INTERVAL = 1 / 20
+local lookSendAccum = 0
+
 RunService.Heartbeat:Connect(function(dt: number)
     local camera = workspace.CurrentCamera
     local cameraPosition = if camera then camera.CFrame.Position else Vector3.zero
     local localLookDirection = if camera then camera.CFrame.LookVector else nil
 
-    -- Publish the local player's own look direction so remote observers can drive that
-    -- character's head IK too (see file header). Attributes support Vector3 natively.
     local localCharacter = localPlayer.Character
     if localCharacter and localLookDirection then
-        localCharacter:SetAttribute("LookDirection", localLookDirection)
+        -- Keep the LOCAL read zero-latency by still setting it locally for our own use...
+        lookSendAccum += dt
+        if lookSendAccum >= LOOK_SEND_INTERVAL then
+            lookSendAccum = 0
+            LookDirectionUpdate:FireServer(localLookDirection)
+        end
     end
 
     for character, entry in pairs(entries) do
         local distance = (entry.RootPart.Position - cameraPosition).Magnitude
         entry.Leg:Update(dt, distance)
-        if entry.Torso then
-            entry.Torso:Update(dt, isMoving(entry.RootPart))
-        end
 
         local isLocal = character == localCharacter
         local lookDirection: Vector3? = if isLocal
             then localLookDirection
             else character:GetAttribute("LookDirection") :: Vector3?
+
         entry.Leg:UpdateHeadLook(dt, lookDirection)
+
+        if entry.Torso then
+            local moving = isMoving(entry.RootPart)
+            local lean = character:GetAttribute("CombatLean") :: string?
+            entry.Torso:Update(dt, moving, lookDirection, lean)
+        end
     end
 end)

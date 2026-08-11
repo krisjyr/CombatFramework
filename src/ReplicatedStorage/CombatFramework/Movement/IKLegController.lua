@@ -74,6 +74,11 @@
 ]]
 
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
+local LookIKTuning = require(CombatFramework.Shared.Config.LookIKTuning)
+local LookIKMath = require(CombatFramework.Shared.LookIKMath)
 
 local IKLegController = {}
 IKLegController.__index = IKLegController
@@ -170,16 +175,14 @@ local REACH_SCALE_BY_STANCE: { [string]: number } = {
 }
 local STRIDE_LENGTH_BY_STANCE: { [string]: number } = {
 	Standing = 4.6,
-	TacticalWalk = 4.6,     -- quicker, choppier steps while creeping (matches the shorter reach)
+	TacticalWalk = 4.2,     -- quicker, choppier steps while creeping (matches the shorter reach)
 	TacticalSprint = 7.4,   -- longer loping cadence at a sprint
-	Crouching = 1.2,        -- crouch gait is short and deliberate
+	Crouching = 0.6,        -- crouch gait is short and deliberate
 }
 
 -- === Head look / free-look (Neck IK) ====================================================
-local HEAD_LOOK_ENGAGE_ANGLE = 8 -- degrees of yaw off body-forward before the head visibly turns (avoids constant micro-twitch)
-local MAX_HEAD_YAW = 75 -- degrees, either side of body-forward
-local MAX_HEAD_PITCH = 45 -- degrees, up/down
-local HEAD_LOOK_AIM_DISTANCE = 5 -- studs; how far ahead the look target attachment is placed
+-- Degree/engage/distance tuning now lives centrally in LookIKTuning.Head so it's tunable
+-- alongside Waist/Root/Lean in one place instead of scattered local constants.
 
 -- Distance-based update throttle (Ch 1.6 performance: "distance-based simulation and
 -- replication prioritization" applies to client-side cosmetic cost too).
@@ -218,6 +221,9 @@ export type IKLegControllerInstance = typeof(setmetatable(
 		_footPlantedCFrame: { [FootSide]: CFrame? },
 		_gaitDistance: number,
 		_headWeight: number,
+		_headLeanRollDeg: number,
+		_currentTorsoTrackRollDeg: number,
+		_lastReliableYawDeg: number,
 		_currentLift: { [FootSide]: number },
 		_currentStrideLength: number,
 		_smoothedPolePos: { [FootSide]: Vector3? },
@@ -232,25 +238,6 @@ local function findPart(character: Model, name: string): BasePart?
 		return inst
 	end
 	return nil
-end
-
---- Clamps a desired world-space look direction to within maxYaw/maxPitch degrees of
---- rootCFrame's forward, returning a new world-space direction. Keeps the head-look
---- system from ever twisting the neck further than a human plausibly could.
-local function clampLookDirection(rootCFrame: CFrame, desiredDirection: Vector3, maxYawDeg: number, maxPitchDeg: number): Vector3
-	local relative = rootCFrame:VectorToObjectSpace(desiredDirection.Unit)
-	-- Roblox's forward is -Z in local space.
-	local forwardAmount = -relative.Z
-	local horizontalDist = math.sqrt(relative.X * relative.X + forwardAmount * forwardAmount)
-	if horizontalDist < 1e-4 then
-		horizontalDist = 1e-4
-	end
-
-	local yaw = math.clamp(math.deg(math.atan2(relative.X, forwardAmount)), -maxYawDeg, maxYawDeg)
-	local pitch = math.clamp(math.deg(math.atan2(relative.Y, horizontalDist)), -maxPitchDeg, maxPitchDeg)
-
-	local clampedLocal = (CFrame.Angles(0, math.rad(yaw), 0) * CFrame.Angles(math.rad(pitch), 0, 0)) * Vector3.new(0, 0, -1)
-	return rootCFrame:VectorToWorldSpace(clampedLocal).Unit
 end
 
 function IKLegController.new(character: Model, humanoid: Humanoid): IKLegControllerInstance?
@@ -307,6 +294,9 @@ function IKLegController.new(character: Model, humanoid: Humanoid): IKLegControl
 			Right = nil :: CFrame?,
 		},
 		_headWeight = 0,
+		_headLeanRollDeg = 0,
+		_currentTorsoTrackRollDeg = 0,
+		_lastReliableYawDeg = 0,
 		_enabled = true,
 		_frameCounter = 0,
 		_currentLift = { Left = 0, Right = 0 },
@@ -507,12 +497,12 @@ function IKLegController._buildHeadIK(self: IKLegControllerInstance)
 
 	local ik = Instance.new("IKControl")
 	ik.Name = "HeadLookIK"
-	ik.Type = Enum.IKControlType.LookAt
+	ik.Type = Enum.IKControlType.Rotation
 	ik.ChainRoot = upperTorso
 	ik.EndEffector = head
 	ik.Target = target
 	ik.Weight = 0
-	ik.SmoothTime = 0.12
+	ik.SmoothTime = 0
 	ik.Parent = self.Humanoid
 	self.HeadIK = ik
 end
@@ -560,7 +550,9 @@ function IKLegController.SetEnabled(self: IKLegControllerInstance, enabled: bool
 		self._currentWeight.Right = 0
 		if self.HeadIK then
 			self.HeadIK.Weight = 0
+			self.HeadIK.Offset = CFrame.identity
 			self._headWeight = 0
+			self._headLeanRollDeg = 0
 		end
 	end
 end
@@ -818,17 +810,23 @@ function IKLegController._updateFoot(
 end
 
 --- Engages/disengages and steers the Neck LookAt IK toward `worldLookDirection`
---- (typically the camera's LookVector). Pass nil to disengage (head follows the base
---- animation with no override). Clamped to a human yaw/pitch range and only engages
---- past HEAD_LOOK_ENGAGE_ANGLE so idle facing-forward doesn't constantly micro-adjust.
+--- (typically the camera's LookVector). Never falls back to a hardcoded forward pose --
+--- past LookIKTuning.Look.BehindDisengageDegrees the tracked yaw REVERSES back toward
+--- center instead (LookIKMath.FoldYawDegrees), same math TorsoTiltController's Waist/Root
+--- use, so all three joints agree on where "the character is looking."
+---
+--- Also applies head lean-tilt via IKControl.Offset -- a constant local roll layered on
+--- TOP of the LookAt solve, independent of whether the head is currently tracking a look
+--- direction. This is the only way to get a genuine head roll during a lean: Neck itself
+--- can never be written directly while it's inside this active IK chain (see file header).
+--- Reads the replicated CombatLean Attribute directly (same pattern Update() already uses
+--- for CombatStance), so no extra plumbing is needed from the caller.
 ---
 --- CALLER CONTRACT (see IKVisualsBootstrap.client.lua): for the LOCAL player, pass the
 --- live camera.CFrame.LookVector directly (zero latency). For REMOTE players, this
 --- controller has no access to their camera, so the bootstrap script instead reads a
 --- replicated `LookDirection` Vector3 Attribute that the owning client sets on its own
---- character each frame -- the same "cosmetic attribute, never authoritative" pattern
---- already used for CombatStance elsewhere in this file (Ch 11: visual feedback must
---- never affect server-authoritative outcomes, and this never touches the server at all).
+--- character each frame.
 function IKLegController.UpdateHeadLook(self: IKLegControllerInstance, dt: number, worldLookDirection: Vector3?)
 	local ik, target = self.HeadIK, self.HeadTarget
 	local head = self.Head
@@ -838,27 +836,67 @@ function IKLegController.UpdateHeadLook(self: IKLegControllerInstance, dt: numbe
 
 	local alpha = math.clamp(WEIGHT_LERP_SPEED * dt, 0, 1)
 	local desiredWeight = 0
+	-- Keep these local variables scoped correctly so the entire function can read/write them
+	local clampedYaw, clampedPitch = 0, 0
+	local rootCF = self.RootPart.CFrame
 
 	if worldLookDirection and worldLookDirection.Magnitude > 0.01 then
-		local rootCF = self.RootPart.CFrame
 		local flatDesired = Vector3.new(worldLookDirection.X, 0, worldLookDirection.Z)
 		local flatForward = Vector3.new(rootCF.LookVector.X, 0, rootCF.LookVector.Z)
 
 		if flatDesired.Magnitude > 0.01 and flatForward.Magnitude > 0.01 then
 			local angleDeg = math.deg(math.acos(math.clamp(flatDesired.Unit:Dot(flatForward.Unit), -1, 1)))
-			if angleDeg > HEAD_LOOK_ENGAGE_ANGLE then
-				desiredWeight = 1
-			end
+			desiredWeight = if angleDeg > LookIKTuning.Head.EngageAngleDegrees then 1 else 0
 		end
 
 		if desiredWeight > 0 then
-			local clampedDir = clampLookDirection(rootCF, worldLookDirection, MAX_HEAD_YAW, MAX_HEAD_PITCH)
-			target.WorldPosition = head.Position + clampedDir * HEAD_LOOK_AIM_DISTANCE
+			local yawDeg, pitchDeg, yawReliable = LookIKMath.SignedYawPitchDegrees(rootCF, worldLookDirection)
+			local foldedYaw: number
+			if yawReliable then
+				foldedYaw = LookIKMath.FoldYawDegrees(yawDeg, LookIKTuning.Look.BehindDisengageDegrees)
+				self._lastReliableYawDeg = foldedYaw
+			else
+				foldedYaw = self._lastReliableYawDeg
+			end
+			-- FIXED: Removed the 'local' keyword here so the outer scope variables are updated
+			clampedYaw = math.clamp(foldedYaw, -LookIKTuning.Head.MaxYawDegrees, LookIKTuning.Head.MaxYawDegrees)
+			clampedPitch = math.clamp(pitchDeg, -LookIKTuning.Head.MaxPitchDegrees, LookIKTuning.Head.MaxPitchDegrees)
 		end
 	end
 
 	self._headWeight += (desiredWeight - self._headWeight) * alpha
 	ik.Weight = self._headWeight
+
+	-- Lean head-tilt calculation
+	local stanceName = self.Character:GetAttribute("CombatStance")
+	local stanceKey = if typeof(stanceName) == "string" then stanceName else "Standing"
+	local family = LookIKTuning.Stances[stanceKey] or LookIKTuning.Stances.Standing
+
+	local leanAttr = self.Character:GetAttribute("CombatLean")
+	local leanState = if typeof(leanAttr) == "string" then leanAttr else "None"
+	local leanSign = if leanState == "Left" then 1 elseif leanState == "Right" then -1 else 0
+
+	local targetHeadTiltDeg = leanSign * -LookIKTuning.Lean.HeadTiltDegrees * family.LeanRollMultiplier
+	local leanAlpha = math.clamp(LookIKTuning.Lean.LerpSpeed * dt, 0, 1)
+	self._headLeanRollDeg += (targetHeadTiltDeg - self._headLeanRollDeg) * leanAlpha
+
+	local baseTorsoRoll = leanSign * LookIKTuning.Lean.RootRollDegrees
+	local totalTorsoLeanRollDeg = baseTorsoRoll + (baseTorsoRoll * LookIKTuning.Lean.WaistFollowFraction)
+
+	if not self._currentTorsoTrackRollDeg then
+		self._currentTorsoTrackRollDeg = 0
+	end
+	self._currentTorsoTrackRollDeg += (totalTorsoLeanRollDeg - self._currentTorsoTrackRollDeg) * leanAlpha
+
+	local combinedRollDeg = self._currentTorsoTrackRollDeg + self._headLeanRollDeg
+	local baseRotation = rootCF - rootCF.Position
+
+	--print("Target Head Tilt:", targetHeadTiltDeg, " | Current Head Tilt:", self._headLeanRollDeg, " | Roll Multiplier:", family.LeanRollMultiplier, " | Head Tilt Degrees:", LookIKTuning.Lean.HeadTiltDegrees, " | MathRad:", math.rad(self._headLeanRollDeg))
+
+	local baseRotation = rootCF - rootCF.Position 
+	target.WorldCFrame = CFrame.new(head.Position)
+			* baseRotation
+			* CFrame.Angles(math.rad(clampedPitch), math.rad(clampedYaw), math.rad(combinedRollDeg))
 end
 
 --- Call once per Heartbeat from the bootstrap script. `distanceFromCamera` drives the
