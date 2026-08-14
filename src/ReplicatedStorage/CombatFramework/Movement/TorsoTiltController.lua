@@ -378,12 +378,29 @@ function TorsoTiltController.Update(
  
 		self._rawYawDeltaDeg = foldedYawDeg
 		self._rawPitchDeltaDeg = rawPitchDeg
+
+		-- Torso pitch lockout (fix: extreme-pitch strafe jitter). rawPitchDeg is the exact
+		-- signed look-pitch off horizontal -- the same value that's about to feed both
+		-- Waist and Root's pitch follow, AND whose companion yaw extraction is what
+		-- destabilizes near vertical (see LookIKTuning.TorsoPitchLockout comment). Fading
+		-- BOTH yaw and pitch follow together (not pitch alone) is what actually stops the
+		-- torso twisting at all near the poles, rather than just stops nodding while still
+		-- twisting -- the yaw instability was the bigger visible offender while strafing.
+		local pitchMagnitudeDeg = math.abs(rawPitchDeg)
+		local lockout = LookIKTuning.TorsoPitchLockout
+		local torsoFollowScale = 1.0
+		if lockout and lockout.Enabled then
+			torsoFollowScale = 1 - math.clamp(
+				(pitchMagnitudeDeg - lockout.FadeStartDegrees) / math.max(lockout.FadeEndDegrees - lockout.FadeStartDegrees, 1e-4),
+				0, 1
+			)
+		end
  
-		targetWaistYaw = math.clamp(foldedYawDeg * family.Waist.YawFollowFraction, -family.Waist.MaxYawTiltDegrees, family.Waist.MaxYawTiltDegrees)
-		targetWaistPitch = math.clamp(rawPitchDeg * family.Waist.PitchFollowFraction, -family.Waist.MaxPitchTiltDegrees, family.Waist.MaxPitchTiltDegrees)
+		targetWaistYaw = math.clamp(foldedYawDeg * family.Waist.YawFollowFraction, -family.Waist.MaxYawTiltDegrees, family.Waist.MaxYawTiltDegrees) * torsoFollowScale
+		targetWaistPitch = math.clamp(rawPitchDeg * family.Waist.PitchFollowFraction, -family.Waist.MaxPitchTiltDegrees, family.Waist.MaxPitchTiltDegrees) * torsoFollowScale
  
-		targetRootYaw = math.clamp(foldedYawDeg * family.Root.YawFollowFraction, -family.Root.MaxYawTiltDegrees, family.Root.MaxYawTiltDegrees)
-		targetRootPitch = math.clamp(rawPitchDeg * family.Root.PitchFollowFraction, -family.Root.MaxPitchTiltDegrees, family.Root.MaxPitchTiltDegrees)
+		targetRootYaw = math.clamp(foldedYawDeg * family.Root.YawFollowFraction, -family.Root.MaxYawTiltDegrees, family.Root.MaxYawTiltDegrees) * torsoFollowScale
+		targetRootPitch = math.clamp(rawPitchDeg * family.Root.PitchFollowFraction, -family.Root.MaxPitchTiltDegrees, family.Root.MaxPitchTiltDegrees) * torsoFollowScale
 	else
 		self._rawYawDeltaDeg = 0
 		self._rawPitchDeltaDeg = 0

@@ -57,7 +57,7 @@ local controller: CharacterController.CharacterControllerInstance? = nil
 local tacticalWalkHeld = false
 
 -- Lean camera feel tuning.
-local LEAN_OFFSET_STUDS = 2.2
+local LEAN_OFFSET_STUDS = 0
 local LEAN_LERP_SPEED = 9
 local currentCameraOffset = Vector3.zero
 
@@ -282,7 +282,11 @@ CameraMotion.Start(function(): (number, number, number, boolean, boolean, Vector
 	end
 	local planarSpeed = controller:GetPlanarSpeed()
 	local referenceSpeed = controller:GetReferenceSpeed()
-	local turnRate = controller:GetTurnRateDegPerSec()
+	-- Issue 7: pull turn rate from CameraInertiaController's BodyYaw tracking (the exact
+	-- signal that drives the visible facing) instead of controller:GetTurnRateDegPerSec()
+	-- (Momentum's unrelated internal steering rate).
+	
+	local turnRate = if cameraInertia then cameraInertia:GetBodyTurnRateDegPerSec() else 0
 	local isMoving = controller:IsMoving()
 	local isSprinting = controller.CurrentStance == "TacticalSprint"
 	local moveDirection = controller:GetMoveDirection()
@@ -290,17 +294,6 @@ CameraMotion.Start(function(): (number, number, number, boolean, boolean, Vector
 end)
 
 -- === Main update loop =========================================================
-RunService:BindToRenderStep("CombatFrameworkFreelookCorrection", Enum.RenderPriority.Character.Value, function()
-	if cameraInertia and cameraInertia.Enabled and cameraInertia.Freelooking then
-		local moveDir = cameraInertia.Humanoid.MoveDirection
-		if moveDir.Magnitude > 0.01 then
-			local yawDelta = cameraInertia.BodyYaw - cameraInertia.Yaw
-			local corrected = CFrame.fromAxisAngle(Vector3.yAxis, yawDelta) * moveDir
-			cameraInertia.Humanoid:Move(corrected, false)
-		end
-	end
-end)
-
 RunService:BindToRenderStep("CombatFrameworkCameraInertia", Enum.RenderPriority.Camera.Value, function(dt)
 	local wantFP = FirstPersonZoomController.IsEnabled()
 	local camera = workspace.CurrentCamera
@@ -338,6 +331,11 @@ RunService.Heartbeat:Connect(function(dt: number)
 
 	local camera = workspace.CurrentCamera
 	local moveDirection = if camera then inputController:GetWorldMoveDirection(camera) else Vector3.zero
+
+	if cameraInertia and cameraInertia.Enabled and cameraInertia.Freelooking and moveDirection.Magnitude > 0.01 then
+		local yawDelta = cameraInertia.BodyYaw - cameraInertia.Yaw
+		moveDirection = CFrame.fromAxisAngle(Vector3.yAxis, yawDelta) * moveDirection
+	end
 
 	controller:Update(dt, moveDirection)
 

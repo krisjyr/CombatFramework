@@ -125,18 +125,31 @@ function InputController.GetWorldMoveDirection(self: InputControllerInstance, ca
 		return Vector3.zero
 	end
 
+	local flatLook: Vector3
+	local flatRight: Vector3
+
 	-- Camera-relative: flatten look/right vectors to the horizontal plane so pitching the
 	-- camera up/down doesn't affect ground movement direction or speed.
-	local cameraCFrame = camera.CFrame
-	local flatLook = Vector3.new(cameraCFrame.LookVector.X, 0, cameraCFrame.LookVector.Z)
-	local flatRight = Vector3.new(cameraCFrame.RightVector.X, 0, cameraCFrame.RightVector.Z)
-
-	if flatLook.Magnitude < 0.01 then
-		flatLook = Vector3.new(0, 0, -1)
-		flatRight = Vector3.new(1, 0, 0)
+	if flatAimCFrame then
+		-- Yaw-only, pitch/roll-free — see header. Numerically stable at any aim angle,
+		-- no fallback branch needed since it can never degenerate.
+		flatLook = flatAimCFrame.LookVector
+		flatRight = flatAimCFrame.RightVector
 	else
-		flatLook = flatLook.Unit
-		flatRight = flatRight.Unit
+		-- Fallback: no first-person camera active (third person). Flatten the raw camera
+		-- CFrame's vectors — safe here since the default orbit camera carries no roll and
+		-- pitch rarely approaches the poles in third person.
+		local cameraCFrame = camera.CFrame
+		flatLook = Vector3.new(cameraCFrame.LookVector.X, 0, cameraCFrame.LookVector.Z)
+		flatRight = Vector3.new(cameraCFrame.RightVector.X, 0, cameraCFrame.RightVector.Z)
+
+		if flatLook.Magnitude < 0.01 then
+			flatLook = Vector3.new(0, 0, -1)
+			flatRight = Vector3.new(1, 0, 0)
+		else
+			flatLook = flatLook.Unit
+			flatRight = flatRight.Unit
+		end
 	end
 
 	local worldDirection = flatRight * combined.X + flatLook * (-combined.Z)

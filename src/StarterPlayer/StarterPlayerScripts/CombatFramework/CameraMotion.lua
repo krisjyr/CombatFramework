@@ -43,11 +43,16 @@ local BOB_PITCH_DEG = 0.15
 local BOB_FADE_RATE = 10 -- how fast bob amplitude ramps in/out with movement state
 
 -- === Turn lean (roll) =======================================================
-local TURN_LEAN_MAX_DEG = 8 -- degrees of roll at/above TURN_LEAN_REFERENCE_DEG_PER_SEC
+local TURN_LEAN_MAX_DEG = 12 -- degrees of roll at/above TURN_LEAN_REFERENCE_DEG_PER_SEC
 local TURN_LEAN_REFERENCE_DEG_PER_SEC = 260
 local TURN_LEAN_SMOOTHING = 8
 
-local STRAFE_LEAN_MAX_DEG = 0.3 -- degrees of roll at full strafe input
+local TURN_LEAN_DEADZONE_DEG_PER_SEC = 4 -- below this, treat raw turn rate as exactly 0
+local TURN_LEAN_RAW_SLEW_DEG_PER_SEC_SQ = 4000 -- max allowed change in the RAW signal per second;
+	-- clips single-frame spikes/sign-flip noise without adding perceptible lag to real turns
+	-- (MomentumController's own turn-rate cap already changes gradually)
+
+local STRAFE_LEAN_MAX_DEG = 8 -- degrees of roll at full strafe input
 
 -- === Landing jounce (critically damped spring) ==============================
 local LANDING_SPRING_STIFFNESS = 220
@@ -61,11 +66,14 @@ local _turnLeanCurrent = 0
 local _landingOffset = 0
 local _landingVelocity = 0
 
+local _smoothedRawTurnRate = 0 -- slew-limited, deadzoned version of the raw input signal
+
 local _cameraOffset = Vector3.zero
 local _cameraVelocity = Vector3.zero
 
 local CAMERA_STIFFNESS = 120
 local CAMERA_DAMPING = 20
+local MAX_DT = 1 / 20
 
 local _getState: (() -> (number, number, number, boolean, boolean, Vector3))? = nil
 
@@ -88,6 +96,8 @@ local function update(dt: number)
 	if not camera or not _getState then
 		return
 	end
+
+	dt = math.min(dt, MAX_DT)
 
     local baseCFrame = camera.CFrame
 
@@ -174,12 +184,31 @@ local function update(dt: number)
 
 
 
-	--------------------------------------------------
+--------------------------------------------------
 	-- MOVEMENT INERTIA
 	--------------------------------------------------
 
+	-- Issue #2 fix: build a YAW-ONLY basis instead of using camera.CFrame directly.
+	-- camera.CFrame now carries pitch (steep aim angles) and roll (rig-driven lean tilt,
+	-- see CameraInertiaController's Head-tracking change) — projecting moveDirection
+	-- through that full rotation made the lateral "strafe" cosmetic offset warp based on
+	-- how far you were aiming up/down or how far the rig had leaned, instead of reflecting
+	-- pure strafing. Flattening to yaw-only fixes it without needing a new dependency.
+	local camLook = camera.CFrame.LookVector
+	local flatForward = Vector3.new(camLook.X, 0, camLook.Z)
+	if flatForward.Magnitude < 1e-3 then
+		-- Looking almost straight up/down: the flattened LookVector degenerates, so
+		-- recover a forward from the RightVector instead (RightVector stays horizontal
+		-- under pure yaw+pitch, only roll would tilt it, and roll alone can't make BOTH
+		-- degenerate at once).
+		local camRight = camera.CFrame.RightVector
+		flatForward = Vector3.new(camRight.Z, 0, -camRight.X)
+	end
+	flatForward = flatForward.Unit
+	local flatCFrame = CFrame.lookAt(Vector3.zero, flatForward)
+
 	local localMove =
-		camera.CFrame:VectorToObjectSpace(moveDirection)
+		flatCFrame:VectorToObjectSpace(moveDirection)
 
 
 	local desiredOffset =
@@ -213,20 +242,27 @@ local function update(dt: number)
 	-- TURN LEAN
 	--------------------------------------------------
 
-	local turnLeanTarget =
-		math.clamp(
-			turnRateDegPerSec / TURN_LEAN_REFERENCE_DEG_PER_SEC,
-			-1,
-			1
-		)
-		*
-		TURN_LEAN_MAX_DEG
+	-- Stage 1: deadzone the raw signal — kill sub-threshold noise outright rather than
+	-- smoothing it (smoothing alone can't fully remove a signal that never reaches zero).
+	local deadzonedRawTurnRate = if math.abs(turnRateDegPerSec) < TURN_LEAN_DEADZONE_DEG_PER_SEC
+		then 0
+		else turnRateDegPerSec
 
+	-- Stage 2: slew-limit the raw signal — clips any single-frame spike/flicker (e.g. a
+	-- turn-direction sign flip right as steering converges) to a bounded rate of change,
+	-- which is what actually removes visible jitter instead of just softening it.
+	local maxRawStep = TURN_LEAN_RAW_SLEW_DEG_PER_SEC_SQ * dt
+	if deadzonedRawTurnRate > _smoothedRawTurnRate then
+		_smoothedRawTurnRate = math.min(deadzonedRawTurnRate, _smoothedRawTurnRate + maxRawStep)
+	else
+		_smoothedRawTurnRate = math.max(deadzonedRawTurnRate, _smoothedRawTurnRate - maxRawStep)
+	end
+
+	local turnLeanTarget = math.clamp(_smoothedRawTurnRate / TURN_LEAN_REFERENCE_DEG_PER_SEC, -1, 1) * TURN_LEAN_MAX_DEG
 
 	_turnLeanCurrent +=
 		(turnLeanTarget - _turnLeanCurrent)
-		*
-		math.clamp(TURN_LEAN_SMOOTHING * dt,0,1)
+		* math.clamp(TURN_LEAN_SMOOTHING * dt, 0, 1)
 
 	--------------------------------------------------
 	-- STRAFE LEAN
