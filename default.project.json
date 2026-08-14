@@ -49,6 +49,283 @@
           "$path": "src/StarterPlayer/StarterPlayerScripts/CombatFramework"
         }
       }
+    },
+
+    "SoundService": {
+      "$className": "SoundService",
+      "CombatFrameworkSounds": {
+        "$className": "Folder",
+        "Footsteps": {
+          "$className": "Folder",
+          "Concrete": {
+            "$className": "Sound"
+          },
+          "Grass": {
+            "$className": "Sound"
+          },
+          "Metal": {
+            "$className": "Sound"
+          },
+          "Sand": {
+            "$className": "Sound"
+          },
+          "Snow": {
+            "$className": "Sound"
+          },
+          "Wood": {
+            "$className": "Sound"
+          },
+          "Water": {
+            "$className": "Sound"
+          }
+        },
+        "Effects": {
+          "$className": "Folder",
+          "Death": {
+          "$className": "Folder",
+            "DeathScream": {
+              "$className": "Sound"
+            }
+          },
+          "Hit": {
+            "$className": "Folder",
+            "HitFlesh": {
+              "$className": "Sound"
+            },
+            "HitMetal": {
+              "$className": "Sound"
+            },
+            "HitWood": {
+              "$className": "Sound"
+            },
+            "HitStone": {
+              "$className": "Sound"
+            },
+            "HitConcrete": {
+              "$className": "Sound"
+            },
+            "HitGrass": {
+              "$className": "Sound"
+            },
+            "HitSand": {
+              "$className": "Sound"
+            },
+            "HitSnow": {
+              "$className": "Sound"
+            },
+            "HitWater": {
+              "$className": "Sound"
+            },
+            "HitGlass": {
+              "$className": "Sound"
+            }
+
+          },
+          "Movement": {
+            "$className": "Folder",
+            "FallWind": {
+            "$className": "Sound"
+            },
+            "Jump": {
+                "$className": "Sound"
+            },
+            "InertiaSlide": {
+                "$className": "Sound"
+            },
+            "HeavyImpact": {
+                "$className": "Sound"
+            },
+            "LightImpact": {
+                "$className": "Sound"
+            },
+            "Equipment": {
+                "$className": "Folder",
+                "EquipmentSprint": {
+                    "$className": "Sound"
+                },
+                "EquipmentWalk": {
+                    "$className": "Sound"
+                },
+                "EquipmentSlow": {
+                    "$className": "Sound"
+                },
+                "WeaponMechanicals": {
+                    "$className": "Folder",
+                    "AssaultRifleSprint1": {
+                        "$className": "Sound"
+                    },
+                    "AssaultRifleSprint2": {
+                        "$className": "Sound"
+                    }
+                }
+            },
+            "Clothing": {
+                "$className": "Folder",
+                "ClothingRun1": {
+                    "$className": "Sound"
+                },
+                "ClothingRun2": {
+                    "$className": "Sound"
+                }
+            },
+            "EquipmentSwitch": {
+                "$className": "Sound"
+            },
+            "EquipmentDrop": {
+                "$className": "Sound"
+            },
+            "EquipmentPickup": {
+                "$className": "Sound"
+            },
+            "EquipmentRustle": {
+                "$className": "Sound"
+            },
+            "StanceChange": {
+                "$className": "Sound"
+            },
+            "Lean": {
+                "$className": "Sound"
+            },
+            "QuickTurn": {
+                "$className": "Sound"
+            },
+            "Stances": {
+                "$className": "Folder",
+                "StanceCrouch": {
+                    "$className": "Sound"
+                },
+                "StanceProne": {
+                    "$className": "Sound"
+                },
+                "StanceStand": {
+                    "$className": "Sound"
+                },
+                "StanceVault": {
+                    "$className": "Sound"
+                },
+                "StanceVaultOver": {
+                    "$className": "Sound"
+                },
+                "StanceLean": {
+                    "$className": "Sound"
+                }
+            }
+          },
+          "Ragdoll": {
+            "$className": "Folder",
+            "Impacts": {
+                "$className": "Folder",
+                "Hard": {
+                    "$className": "Folder"
+                },
+                "Medium": {
+                    "$className": "Folder"
+                },
+                "Soft": {
+                    "$className": "Folder"
+                },
+                "Snow": {
+                    "$className": "Folder"
+                },
+                "Water": {
+                    "$className": "Folder"
+                },
+                "Wood": {
+                    "$className": "Folder"
+                }
+            },
+            "Scrape": {
+                "$className": "Folder",
+                "Concrete": {
+                    "$className": "Sound"
+                },
+                "Snow": {
+                    "$className": "Sound"
+                },
+                "Wood": {
+                    "$className": "Sound"
+                },
+                "Generic": {
+                    "$className": "Sound"
+                }
+            }
+          },
+          "Other": {
+            "$className": "Folder",
+            "BulletWhiz": {
+                "$className": "Sound"
+            },
+            "ShellShock": {
+                "$className": "Sound"
+            },
+            "Shock": {
+                "$className": "Sound"
+            },
+            "Heartbeat": {
+                "$className": "Sound"
+            },
+            "Panic": {
+                "$className": "Sound"
+            },
+            "HeavyBreathing": {
+                "$className": "Sound"
+            },
+            "Breathing": {
+                "$className": "Folder",
+                "Calm": {
+                    "$className": "Folder",
+                    "Calm1": {
+                        "$className": "Sound"
+                    }
+                },
+                "Medium": {
+                    "$className": "Folder",
+                    "Medium1": {
+                        "$className": "Sound"
+                    }
+                },
+                "Heavy": {
+                    "$className": "Folder",
+                    "Heavy1": {
+                        "$className": "Sound"
+                    }
+                }
+            },
+            "HoldBreath": {
+                "$className": "Sound"
+            },
+            "ReleaseBreath": {
+                "$className": "Sound"
+            },
+            "Ricochet": {
+                "$className": "Sound"
+            },
+            "Scream": {
+              "$className": "Folder",
+              "Incapacitated": {
+                "$className": "Folder",
+                "Incapacitated1": {
+                    "$className": "Sound"
+                }
+              },
+              "Hit": {
+                "$className": "Folder",
+                "HitScream1": {
+                    "$className": "Sound"
+                }
+              },
+              "Dead": {
+                "$className": "Folder",
+                "DeathScream1": {
+                    "$className": "Sound"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
+
+        

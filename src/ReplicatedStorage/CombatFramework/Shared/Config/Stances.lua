@@ -13,10 +13,16 @@
 	deliberately gradual, matching most tactical shooters.
 ]]
 
-export type StanceAnimations = {
-	Idle: string,
-	Move: string,
+export type StanceAnimationEntry = {
+	Id: string,
+	Speed: number?,
 }
+ 
+export type StanceAnimations = {
+	Idle: StanceAnimationEntry,
+	Move: StanceAnimationEntry,
+}
+
 
 export type StanceModifiers = {
 	SpeedMultiplier: number,
@@ -35,8 +41,22 @@ export type StanceModifiers = {
 
 export type StanceDefinition = StanceModifiers & {
 	AllowedTransitions: { string },
-	Animations: StanceAnimations,
+	-- Both optional; omit either/both to use AnimationController's DEFAULT_ANIMATIONS.
+	AnimationsEnabled: boolean?,
+	Animations: StanceAnimations?,
 }
+
+export type StanceIKIdlePose = {
+	FootPitchDegrees: number,   -- ankle tilt while planted+idle (+ = toe up)
+	HandPitchDegrees: number,   -- wrist/forearm tilt while idle-hanging
+	SurfaceFollow: number,      -- 0 = ignore ground/surface normal, 1 = fully match it (feet)
+}
+
+-- Small helper so every stance below doesn't have to repeat Speed=1, JointMask={}
+-- boilerplate for the common case of "just a normal, full-body animation."
+local function anim(id: string, speed: number?): StanceAnimationEntry
+	return { Id = id, Speed = speed or 1 }
+end
 
 local Stances: { [string]: StanceDefinition } = {
 	Standing = {
@@ -52,8 +72,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = true,
 		TransitionTime = 0.15,
 		CameraControlMultiplier = 1.0,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "TacticalWalk", "Crouching", "Prone", "TacticalSprint", "Jumping", "Mounted", "Climbing", "Swimming" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://2510197257") },
 	},
 
 	TacticalWalk = {
@@ -62,15 +83,16 @@ local Stances: { [string]: StanceDefinition } = {
 		RecoilMultiplier = 0.9,
 		StabilityBonus = 0.15,
 		NoiseMultiplier = 0.5,
-		Height = 0.925,
+		Height = 0.955,
 		CanSprint = true,
 		CanAim = true,
 		CanFire = true,
 		CanLean = true,
 		TransitionTime = 0.1,
 		CameraControlMultiplier = 1.1,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing", "Crouching", "Prone", "TacticalSprint", "Mounted", "Climbing", "Swimming" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://2510197257") },
 	},
 
 	Crouching = {
@@ -86,8 +108,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = true,
 		TransitionTime = 0.25,
 		CameraControlMultiplier = 1.2,
+		IKIdlePose = { FootPitchDegrees = -16, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing", "TacticalWalk", "Prone", "Jumping", "Mounted", "Climbing", "Swimming" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		AnimationsEnabled = true,
 	},
 
 	Prone = {
@@ -103,8 +126,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = true,
 		TransitionTime = 0.6,
 		CameraControlMultiplier = 1.3,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Crouching" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://0"), Move = anim("rbxassetid://0") },
 	},
 
 	TacticalSprint = {
@@ -113,15 +137,16 @@ local Stances: { [string]: StanceDefinition } = {
 		RecoilMultiplier = 1.0,
 		StabilityBonus = -0.5,
 		NoiseMultiplier = 1.6,
-		Height = 1.0,
+		Height = 0.97,
 		CanSprint = true,
 		CanAim = false,
 		CanFire = false,
 		CanLean = false,
 		TransitionTime = 0.2,
 		CameraControlMultiplier = 0.55,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing", "TacticalWalk", "Jumping", "Mounted", "Climbing", "Swimming" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://2510197257"), Move = anim("rbxassetid://2510198475") },
 	},
 
 	Jumping = {
@@ -137,8 +162,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = false,
 		TransitionTime = 0.05,
 		CameraControlMultiplier = 0.8,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing", "TacticalWalk", "Crouching" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://2510197257"), Move = anim("rbxassetid://99503269381915") },
 	},
 
 	Mounted = {
@@ -154,8 +180,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = false,
 		TransitionTime = 0.3,
 		CameraControlMultiplier = 1.4,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://0"), Move = anim("rbxassetid://0") },
 	},
 
 	Climbing = {
@@ -171,8 +198,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = false,
 		TransitionTime = 0.2,
 		CameraControlMultiplier = 0.6,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing", "Crouching" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://0"), Move = anim("rbxassetid://88464673273226") },
 	},
 
 	Swimming = {
@@ -188,8 +216,9 @@ local Stances: { [string]: StanceDefinition } = {
 		CanLean = false,
 		TransitionTime = 0.2,
 		CameraControlMultiplier = 0.6,
+		IKIdlePose = { FootPitchDegrees = 0, HandPitchDegrees = 0, SurfaceFollow = 0.55 },
 		AllowedTransitions = { "Standing" },
-		Animations = { Idle = "rbxassetid://0", Move = "rbxassetid://0" },
+		Animations = { Idle = anim("rbxassetid://0"), Move = anim("rbxassetid://0") },
 	},
 }
 

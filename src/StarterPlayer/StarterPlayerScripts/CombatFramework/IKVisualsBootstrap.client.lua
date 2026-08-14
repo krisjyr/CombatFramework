@@ -157,7 +157,9 @@ RunService.Heartbeat:Connect(function(dt: number)
             then localLookDirection
             else character:GetAttribute("LookDirection") :: Vector3?
 
-        entry.Leg:UpdateHeadLook(dt, lookDirection)
+        local clearance = if entry.Torso then entry.Torso:GetBodyClearance() else 1
+        entry.Leg:UpdateHeadLook(dt, lookDirection, clearance)
+
 
         if entry.Torso then
             local moving = isMoving(entry.RootPart)

@@ -1,13 +1,21 @@
 # Other
 - *MAJOR* Cannot swim downwards/upwards
 - *MAJOR* Slope/stair detection still mediocre and half/working
+- *MAJOR* Something breaks stances and everything on movement. Possibly slope/stair detection?
+- *MAJOR* Climb stance not activating while climbing Trusses, or ladders.
+- *MAJOR* While swimming, activates jump stance.
+- *MAJOR* Missing falling/landing(from falling) stance which could be added animations to
+- *To-Add* Rotation of body to stances (So crawl can be made into the character in actual crawl position with chest on the ground)
 
 ### Inverse Kinematics
-- *MAJOR UNFIXABLE* On crouch the IK rotates the front leg 180 degrees (left side of the leg is on the right and right side is on the left), but the leg position stays correct. Same happens while walking, it for some reason jitters/rotates 180 and then back to normal. Same is happening while strafing, while moving overall. ( ROBLOX's OWN FUCKING ENGINE ISSUE, NONFIXABLE IF DONT FULL REWRITE TO CUSTOM ENGINE)
-- *MAJOR* Something breaks stances and everything. Possibly slope/stair detection?
-- *MAJOR* RootPart or LowerTorso is jumping up and down while walking making it seem like the character is hopping not walking.
+- **MAJOR FIXXXXEEDD!!!!** On crouch the IK rotates the front leg 180 degrees (left side of the leg is on the right and right side is on the left), but the leg position stays correct. Same happens while walking, it for some reason jitters/rotates 180 and then back to normal. Same is happening while strafing, while moving overall. ( ROBLOX's OWN FUCKING ENGINE ISSUE, NONFIXABLE IF DONT FULL REWRITE TO CUSTOM ENGINE) **[NEVER FUCKIN MINDDD. GOT IT FIXED BY MAKING A RIG WITH CONSTRAINTSSSS!!!]**
+- *MAJOR* Arm IK that looks natural while walking (Currently wrists not moving at all)
 - *MEDIUM* Modify IK values for better stance procedural anims. (Currently running is trash)
 - *To-Add* Step sounds based on material
+
+### Animations
+- *MAJOR* Animation engine swap and smoothness between animations is slow and doesn't instantly default to standing idle.
+
 
 ### Camera
 - *MAJOR* Set lean camera based on how far character leans
@@ -21,8 +29,8 @@
 - *LOW* Remove strafing effects from third-person cam. Even better: Add configs for effects of which is on/off in thirdperson/firstperson
 - *LOW* When in first-person character's shadow's head is missing (probably due to head transparency in FP).
 
-### Character Effects
-- *MAJOR IN-WORK* Freelook and look directions not replicating to other clients/players.
+### Character Effects (Looking around, etc)
+- **DONE**
 
 ### Ragdoll
 *CRITICAL* Ragdoll broken / not ragdolling on death

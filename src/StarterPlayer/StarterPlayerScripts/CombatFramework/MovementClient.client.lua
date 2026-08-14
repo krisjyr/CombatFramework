@@ -33,6 +33,7 @@ local CameraMotion = require(script.Parent.CameraMotion)
 local InputController = require(script.Parent.InputController)
 local FirstPersonVisibility = require(script.Parent.FirstPersonVisibility)
 local FirstPersonZoomController = require(script.Parent.FirstPersonZoomController)
+local LocalBodyClearance = require(CombatFramework.Shared.LocalBodyClearance)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local StanceRequest = Remotes:WaitForChild("StanceRequest") :: RemoteEvent
@@ -343,9 +344,9 @@ RunService.Heartbeat:Connect(function(dt: number)
 	-- Lean camera feel: smoothly lerp Humanoid.CameraOffset sideways based on LeanState.
 	local targetOffset = Vector3.zero
 	if controller.LeanState == "Left" then
-		targetOffset = Vector3.new(-LEAN_OFFSET_STUDS, 0, 0)
+		targetOffset = Vector3.new(-LEAN_OFFSET_STUDS * LocalBodyClearance.Lateral, 0, 0)
 	elseif controller.LeanState == "Right" then
-		targetOffset = Vector3.new(LEAN_OFFSET_STUDS, 0, 0)
+		targetOffset = Vector3.new(LEAN_OFFSET_STUDS * LocalBodyClearance.Lateral, 0, 0)
 	end
 
 	local alpha = math.clamp(LEAN_LERP_SPEED * dt, 0, 1)
