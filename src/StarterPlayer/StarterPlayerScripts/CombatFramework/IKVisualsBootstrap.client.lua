@@ -34,6 +34,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local IKLegController = require(CombatFramework.Movement.IKLegController)
 local TorsoTiltController = require(CombatFramework.Movement.TorsoTiltController)
+local IKControllerRegistry = require(script.Parent.IKControllerRegistry)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local LookDirectionUpdate = Remotes:WaitForChild("LookDirectionUpdate") :: RemoteEvent
@@ -77,8 +78,11 @@ local function setup(player: Player, character: Model)
 
     local legController = IKLegController.new(character, humanoid)
     if not legController then
+        IKControllerRegistry.Remove(character)
         return -- not an R15-shaped rig; nothing to do
     end
+
+    IKControllerRegistry.Set(character, legController)
 
     local torsoController = TorsoTiltController.new(character, player == localPlayer)
 

@@ -194,6 +194,9 @@ UserInputService.InputEnded:Connect(function(input, _gameProcessed)
 		end
 	elseif input.KeyCode == Enum.KeyCode.LeftControl and cameraInertia then
 		cameraInertia:SetFreelooking(false)
+		if player.Character then
+			player.Character:SetAttribute("CombatFreelooking", false)
+		end
 	end
 end)
 

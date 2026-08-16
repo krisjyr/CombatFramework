@@ -35,6 +35,7 @@ local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local CharacterController = require(CombatFramework.Movement.CharacterController)
 local AnimationController = require(CombatFramework.Movement.AnimationController)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
+local SoundService = require(CombatFramework.Shared.SoundService)
 
 local ControllerRegistry = require(script.Parent.ControllerRegistry)
 
@@ -156,12 +157,32 @@ CombatEvents.StanceChanged:Connect(function(player: Player, newStance: string, _
 	end
 	if player.Character then
 		player.Character:SetAttribute("CombatStance", newStance)
+		if newStance == "Crouching" then
+			SoundService.Play("Movement.StanceCrouch", {
+				Parent = player.Character:FindFirstChild("HumanoidRootPart") :: BasePart,
+				Volume = 0.5,
+			})
+		elseif newStance == "Prone" then
+			SoundService.Play("Movement.StanceProne", {
+				Parent = player.Character:FindFirstChild("HumanoidRootPart") :: BasePart,
+				Volume = 0.5,
+			})
+		elseif (_oldStance == "Standing" or _oldStance == "Crouching") and newStance == "Standing" then
+			SoundService.Play("Movement.StanceStand", {
+				Parent = player.Character:FindFirstChild("HumanoidRootPart") :: BasePart,
+				Volume = 0.5,
+			})
+		end
 	end
 end)
 
 CombatEvents.LeanChanged:Connect(function(player: Player, direction: string)
 	if player.Character then
 		player.Character:SetAttribute("CombatLean", direction)
+		SoundService.Play("Movement.StanceLean", {
+			Parent = player.Character:FindFirstChild("HumanoidRootPart") :: BasePart,
+			Volume = 0.5,
+		})
 	end
 end)
 

@@ -57,35 +57,35 @@
         "$className": "Folder",
         "Footsteps": {
           "$className": "Folder",
-          "Concrete": {
-            "$className": "Sound"
-          },
-          "Grass": {
-            "$className": "Sound"
-          },
-          "Metal": {
-            "$className": "Sound"
-          },
-          "Sand": {
-            "$className": "Sound"
-          },
-          "Snow": {
-            "$className": "Sound"
-          },
-          "Wood": {
-            "$className": "Sound"
-          },
-          "Water": {
-            "$className": "Sound"
-          }
+          "Concrete": { "$className": "Folder", "Concrete1": {"$className":"Sound"}, "Concrete2": {"$className":"Sound"}, "Concrete3": {"$className":"Sound"} },
+          "Metal":    { "$className": "Folder", "Metal1": {"$className":"Sound"}, "Metal2": {"$className":"Sound"} },
+          "Wood":     { "$className": "Folder", "Wood1": {"$className":"Sound"}, "Wood2": {"$className":"Sound"} },
+          "Plastic":  { "$className": "Folder", "Plastic1": {"$className":"Sound"} },
+          "Glass":    { "$className": "Folder", "Glass1": {"$className":"Sound"} },
+          "Grass":    { "$className": "Folder", "Grass1": {"$className":"Sound"}, "Grass2": {"$className":"Sound"} },
+          "Sand":     { "$className": "Folder", "Sand1": {"$className":"Sound"}, "Sand2": {"$className":"Sound"} },
+          "Snow":     { "$className": "Folder", "Snow1": {"$className":"Sound"}, "Snow2": {"$className":"Sound"} },
+          "Ice":      { "$className": "Folder", "Ice1": {"$className":"Sound"} },
+          "Mud":      { "$className": "Folder", "Mud1": {"$className":"Sound"}, "Mud2": {"$className":"Sound"} },
+          "Fabric":   { "$className": "Folder", "Fabric1": {"$className":"Sound"} },
+          "Water":    { "$className": "Folder", "Water1": {"$className":"Sound"}, "Water2": {"$className":"Sound"} },
+          "Foil":     { "$className": "Folder", "Foil1": {"$className":"Sound"} },
+          "WoodPlanks": { "$className": "Folder", "WoodPlanks1": {"$className":"Sound"}, "WoodPlanks2": {"$className":"Sound"} },
+          "Ground": { "$className": "Folder", "Ground1": {"$className":"Sound"}, "Ground2": {"$className":"Sound"} },
+          "Tiles": { "$className": "Folder", "Tiles1": {"$className":"Sound"}, "Tiles2": {"$className":"Sound"} },
+          "Cardboard": { "$className": "Folder", "Cardboard1": {"$className":"Sound"}, "Cardboard2": {"$className":"Sound"} },
+          "Gravel": { "$className": "Folder", "Gravel1": {"$className":"Sound"}, "Gravel2": {"$className":"Sound"} },
+          "Marble": { "$className": "Folder", "Marble1": {"$className":"Sound"}, "Marble2": {"$className":"Sound"} },
+          "Rock": { "$className": "Folder", "Rock1": {"$className":"Sound"}, "Rock2": {"$className":"Sound"} },
+          "MetalThin": { "$className": "Folder", "MetalThin1": {"$className":"Sound"}, "MetalThin2": {"$className":"Sound"} }
         },
         "Effects": {
           "$className": "Folder",
           "Death": {
-          "$className": "Folder",
-            "DeathScream": {
-              "$className": "Sound"
-            }
+            "$className": "Folder",
+              "DeathScream": {
+                "$className": "Sound"
+              }
           },
           "Hit": {
             "$className": "Folder",
@@ -188,6 +188,12 @@
             },
             "QuickTurn": {
                 "$className": "Sound"
+            },
+            "Slide": {
+              "$className": "Folder",
+              "SlideStart": { "$className": "Sound" },
+              "SlideLoop":  { "$className": "Sound" },
+              "SlideStop":  { "$className": "Sound" }
             },
             "Stances": {
                 "$className": "Folder",

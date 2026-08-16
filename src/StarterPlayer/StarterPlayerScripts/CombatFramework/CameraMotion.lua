@@ -24,6 +24,9 @@
 
 local RunService = game:GetService("RunService")
 
+local FirstPersonZoomController = require(script.Parent.FirstPersonZoomController)
+local CameraEffects = require(game.ReplicatedStorage.CombatFramework.Shared.Config.CameraEffects)
+
 local CameraMotion = {}
 
 -- === Head bob ==============================================================
@@ -87,6 +90,10 @@ end
 --- Call from CombatEvents.FallImpact — kicks the landing spring proportional to how hard
 --- the landing was.
 function CameraMotion.OnLanding(peakFallSpeed: number)
+	local toggles = if FirstPersonZoomController.IsEnabled() then CameraEffects.FirstPerson else CameraEffects.ThirdPerson
+	if not toggles.LandingSpring then
+		return
+	end
 	local impulse = math.min(peakFallSpeed * LANDING_IMPULSE_PER_STUD_PER_SEC, LANDING_IMPULSE_MAX)
 	_landingVelocity -= impulse
 end
@@ -98,6 +105,8 @@ local function update(dt: number)
 	end
 
 	dt = math.min(dt, MAX_DT)
+
+	local toggles = if FirstPersonZoomController.IsEnabled() then CameraEffects.FirstPerson else CameraEffects.ThirdPerson
 
     local baseCFrame = camera.CFrame
 
@@ -114,7 +123,11 @@ local function update(dt: number)
 	-- HEAD BOB
 	--------------------------------------------------
 
-	local targetBobScale = if isMoving then 1 else 0
+	-- Gated by toggles.HeadBob: disabling just targets a bob scale of 0, which
+	-- _bobAmplitudeScale already eases toward via the exact same BOB_FADE_RATE path it
+	-- uses when IsMoving() goes false -- so toggling never pops, it eases out same as
+	-- stopping would.
+	local targetBobScale = if isMoving and toggles.HeadBob then 1 else 0
 
 	_bobAmplitudeScale +=
 		(targetBobScale - _bobAmplitudeScale)
@@ -184,23 +197,16 @@ local function update(dt: number)
 
 
 
---------------------------------------------------
-	-- MOVEMENT INERTIA
+	--------------------------------------------------
+	-- MOVEMENT INERTIA (a.k.a. strafe lean — the effect this pass makes toggleable)
 	--------------------------------------------------
 
-	-- Issue #2 fix: build a YAW-ONLY basis instead of using camera.CFrame directly.
-	-- camera.CFrame now carries pitch (steep aim angles) and roll (rig-driven lean tilt,
-	-- see CameraInertiaController's Head-tracking change) — projecting moveDirection
-	-- through that full rotation made the lateral "strafe" cosmetic offset warp based on
-	-- how far you were aiming up/down or how far the rig had leaned, instead of reflecting
-	-- pure strafing. Flattening to yaw-only fixes it without needing a new dependency.
+	-- Yaw-only basis: camera.CFrame carries pitch (aim angle) and roll (rig-driven lean
+	-- tilt) which would otherwise warp this lateral offset based on how far you're
+	-- aiming up/down or how far the rig has leaned. Flattened to yaw only.
 	local camLook = camera.CFrame.LookVector
 	local flatForward = Vector3.new(camLook.X, 0, camLook.Z)
 	if flatForward.Magnitude < 1e-3 then
-		-- Looking almost straight up/down: the flattened LookVector degenerates, so
-		-- recover a forward from the RightVector instead (RightVector stays horizontal
-		-- under pure yaw+pitch, only roll would tilt it, and roll alone can't make BOTH
-		-- degenerate at once).
 		local camRight = camera.CFrame.RightVector
 		flatForward = Vector3.new(camRight.Z, 0, -camRight.X)
 	end
@@ -211,16 +217,22 @@ local function update(dt: number)
 		flatCFrame:VectorToObjectSpace(moveDirection)
 
 
+	-- Gated by toggles.MovementInertia: OFF -> target is Vector3.zero, so the existing
+	-- critically-damped spring below relaxes the offset back to rest smoothly instead of
+	-- snapping it away -- same mechanism as any other transient input dropping to zero.
 	local desiredOffset =
-		Vector3.new(
-			-localMove.X,
-			0,
-			-localMove.Z
-		)
-		*
-		0.02
-		*
-		speedFraction
+		if toggles.MovementInertia then
+			Vector3.new(
+				-localMove.X,
+				0,
+				-localMove.Z
+			)
+			*
+			0.02
+			*
+			speedFraction
+		else
+			Vector3.zero
 
 
 	local accel =
@@ -242,15 +254,14 @@ local function update(dt: number)
 	-- TURN LEAN
 	--------------------------------------------------
 
-	-- Stage 1: deadzone the raw signal — kill sub-threshold noise outright rather than
-	-- smoothing it (smoothing alone can't fully remove a signal that never reaches zero).
-	local deadzonedRawTurnRate = if math.abs(turnRateDegPerSec) < TURN_LEAN_DEADZONE_DEG_PER_SEC
-		then 0
+	-- Gated by toggles.TurnLean: OFF -> deadzoned raw input forced to 0, so
+	-- _smoothedRawTurnRate (and therefore _turnLeanCurrent) eases back to 0 through its
+	-- normal slew/smoothing path rather than popping.
+	local deadzonedRawTurnRate =
+		if not toggles.TurnLean then 0
+		elseif math.abs(turnRateDegPerSec) < TURN_LEAN_DEADZONE_DEG_PER_SEC then 0
 		else turnRateDegPerSec
 
-	-- Stage 2: slew-limit the raw signal — clips any single-frame spike/flicker (e.g. a
-	-- turn-direction sign flip right as steering converges) to a bounded rate of change,
-	-- which is what actually removes visible jitter instead of just softening it.
 	local maxRawStep = TURN_LEAN_RAW_SLEW_DEG_PER_SEC_SQ * dt
 	if deadzonedRawTurnRate > _smoothedRawTurnRate then
 		_smoothedRawTurnRate = math.min(deadzonedRawTurnRate, _smoothedRawTurnRate + maxRawStep)
@@ -265,15 +276,18 @@ local function update(dt: number)
 		* math.clamp(TURN_LEAN_SMOOTHING * dt, 0, 1)
 
 	--------------------------------------------------
-	-- STRAFE LEAN
+	-- STRAFE LEAN (roll, part of TurnLean toggle -- always paired with turn roll)
 	--------------------------------------------------
 
 	local strafeRoll =
-		localMove.X
-		*
-		STRAFE_LEAN_MAX_DEG
-		*
-		speedFraction
+		if toggles.TurnLean then
+			localMove.X
+			*
+			STRAFE_LEAN_MAX_DEG
+			*
+			speedFraction
+		else
+			0
 
 
 
@@ -282,7 +296,7 @@ local function update(dt: number)
 	--------------------------------------------------
 
 	local sprintForward =
-		if isSprinting
+		if isSprinting and toggles.SprintLean
 		then -0.02
 		else 0
 
@@ -291,6 +305,9 @@ local function update(dt: number)
 	-- LANDING SPRING
 	--------------------------------------------------
 
+	-- No separate gate needed here: OnLanding() above already refuses to kick the spring
+	-- when LandingSpring is off, so _landingOffset/_landingVelocity simply never leave
+	-- rest in that mode. This block just keeps integrating whatever's already there.
 	local springForce =
 		-
 		LANDING_SPRING_STIFFNESS

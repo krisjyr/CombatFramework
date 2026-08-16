@@ -124,7 +124,7 @@ local LookIKTuning = {
     TiltLerpSpeed = 8,          -- yaw/pitch follow smoothing (both Waist and Root)
     ForwardTiltLerpSpeed = 10,  -- NEW: BaseForwardTilt used to snap instantly on a stance change; now eases in/out
 
-    TorsoPitchLockout = {
+    TorsoYawRollLockout = {
         Enabled = true,
         FadeStartDegrees = 55,
         FadeEndDegrees = 75,

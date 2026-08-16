@@ -31,7 +31,11 @@
 	alongside the client's own CharacterController (ownsPhysics = true).
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
+
 local UserInputService = game:GetService("UserInputService")
+local SoundService = require(CombatFramework.Shared.SoundService)
 
 local CameraInertiaController = {}
 CameraInertiaController.__index = CameraInertiaController
@@ -194,12 +198,25 @@ function CameraInertiaController.Enable(self: CameraInertiaControllerInstance)
 	end
 	self.Enabled = true
 
+	-- Claim sole authority over RootPart's facing while first person is active. Without
+	-- this, Humanoid:Move (called every frame by MomentumController with a MOVEMENT-
+	-- direction-carving facing) leaves AutoRotate on, so Roblox's own physics continuously
+	-- rotates RootPart toward the movement direction every physics substep — fighting the
+	-- CFrame write to BodyYaw at the bottom of this file's Update(), which wants RootPart
+	-- facing the LOOK direction instead. The two disagree most when walking backward
+	-- (movement direction ~180° from look direction), which is exactly the reported
+	-- jitter. Disable() already resets this to true for third person, where
+	-- MomentumController's movement-direction-carving facing SHOULD visibly rotate the
+	-- body (no camera-forced facing competing with it there).
+	self.Humanoid.AutoRotate = false
+
 	local look = self.Camera.CFrame.LookVector
 	local flatLen = math.sqrt(look.X * look.X + look.Z * look.Z)
 	self.Yaw = math.atan2(-look.X, -look.Z)
 	self.Pitch = math.clamp(math.atan2(look.Y, flatLen), MIN_PITCH, MAX_PITCH)
 	self.BodyYaw = self.Yaw
 	self._lastBodyYaw = self.BodyYaw
+	self._bodyTurnRateDegPerSec = 0
 	self._yawVelocity = 0
 	self._pitchVelocity = 0
 	self._wasFreelooking = false
@@ -383,6 +400,13 @@ function CameraInertiaController.Update(self, dt)
 	local bodyYawDelta = angleDiff(self._lastBodyYaw, self.BodyYaw)
 	self._bodyTurnRateDegPerSec = math.deg(bodyYawDelta) / dt
 	self._lastBodyYaw = self.BodyYaw
+
+	if math.abs(self._bodyTurnRateDegPerSec) > 100 then
+		SoundService.Play("Movement.QuickTurn", {
+			Parent = self.RootPart,
+			Volume = math.clamp(math.abs(self._bodyTurnRateDegPerSec) / 1440, 0, 1.0),
+		})
+	end
 
 -- === Apply — body-relative pivot, arcing eyes, wall-clip prevention ==============
 	local rootCFrame = self.RootPart.CFrame

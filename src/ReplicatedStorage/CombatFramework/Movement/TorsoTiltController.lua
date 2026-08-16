@@ -172,6 +172,7 @@ function TorsoTiltController._sampleAxisClearance(
 	if desiredMagnitude < CLEARANCE_MIN_OFFSET then
 		return 1
 	end
+
  
 	local direction = desiredOffset.Unit
 	local checkDistance = desiredMagnitude + CLEARANCE_MARGIN
@@ -366,41 +367,59 @@ function TorsoTiltController.Update(
 	-- control over both the upper body (Waist) and lower body (Root).
 	local targetWaistYaw, targetWaistPitch = 0, 0
 	local targetRootYaw, targetRootPitch = 0, 0
+
+	local freelookAttr = self.Character:GetAttribute("CombatFreelooking")
+	local isFreelooking = freelookAttr == true
  
 	local leanSign = if leanState == "Left" then 1 elseif leanState == "Right" then -1 else 0
-	local rawLeanRoll = leanSign * LookIKTuning.Lean.RootRollDegrees
 	local rawLeanTranslate = leanSign * -LookIKTuning.Lean.RootTranslateStuds * family.LeanTranslateMultiplier
 	local rawLeanHeight = math.abs(leanSign) * LookIKTuning.Lean.RootTranslateHeight
+
+	-- Torso YAW+ROLL lockout (fix: extreme-pitch strafe jitter). Computed from the raw
+	-- look-pitch whenever a look direction exists at all -- independent of `gateOk`,
+	-- since Lean roll below is "always-on, not gated" per the file header and its
+	-- lockout can't ride on the same gate that controls look-follow specifically.
+	-- PITCH look-follow is intentionally excluded from this scale -- see
+	-- LookIKTuning.TorsoYawRollLockout for why.
+	local torsoYawRollScale = 1.0
+	local rawYawDeg, rawPitchDeg, yawReliable = 0, 0, true
+	local hasLook = worldLookDirection ~= nil and worldLookDirection.Magnitude > 0.01
+
+	if hasLook then
+		rawYawDeg, rawPitchDeg, yawReliable = LookIKMath.SignedYawPitchDegrees(self.RootPart.CFrame, worldLookDirection :: Vector3)
+
+		if isFreelooking then
+			torsoYawRollScale = 0
+		else
+			local lockout = LookIKTuning.TorsoYawRollLockout
+			local degreeFade = 1.0
+			if lockout and lockout.Enabled then
+				local pitchMagnitudeDeg = math.abs(rawPitchDeg)
+				degreeFade = 1 - math.clamp(
+					(pitchMagnitudeDeg - lockout.FadeStartDegrees) / math.max(lockout.FadeEndDegrees - lockout.FadeStartDegrees, 1e-4),
+					0, 1
+				)
+			end
+			torsoYawRollScale = degreeFade * (if yawReliable then 1 else 0)
+		end
+	end
+
+	-- Lean roll: scaled by the SAME torsoYawRollScale as yaw above. Translate/height are
+	-- left alone -- a sideways hip shift is a translation, not a rotation, and isn't part
+	-- of the near-vertical instability.
+	local rawLeanRoll = leanSign * LookIKTuning.Lean.RootRollDegrees * torsoYawRollScale
  
-	if worldLookDirection and worldLookDirection.Magnitude > 0.01 and gateOk then
-		local rawYawDeg, rawPitchDeg = LookIKMath.SignedYawPitchDegrees(self.RootPart.CFrame, worldLookDirection)
+	if hasLook and gateOk and not isFreelooking then
 		local foldedYawDeg = LookIKMath.FoldYawDegrees(rawYawDeg, LookIKTuning.Look.BehindDisengageDegrees)
- 
+
 		self._rawYawDeltaDeg = foldedYawDeg
 		self._rawPitchDeltaDeg = rawPitchDeg
 
-		-- Torso pitch lockout (fix: extreme-pitch strafe jitter). rawPitchDeg is the exact
-		-- signed look-pitch off horizontal -- the same value that's about to feed both
-		-- Waist and Root's pitch follow, AND whose companion yaw extraction is what
-		-- destabilizes near vertical (see LookIKTuning.TorsoPitchLockout comment). Fading
-		-- BOTH yaw and pitch follow together (not pitch alone) is what actually stops the
-		-- torso twisting at all near the poles, rather than just stops nodding while still
-		-- twisting -- the yaw instability was the bigger visible offender while strafing.
-		local pitchMagnitudeDeg = math.abs(rawPitchDeg)
-		local lockout = LookIKTuning.TorsoPitchLockout
-		local torsoFollowScale = 1.0
-		if lockout and lockout.Enabled then
-			torsoFollowScale = 1 - math.clamp(
-				(pitchMagnitudeDeg - lockout.FadeStartDegrees) / math.max(lockout.FadeEndDegrees - lockout.FadeStartDegrees, 1e-4),
-				0, 1
-			)
-		end
- 
-		targetWaistYaw = math.clamp(foldedYawDeg * family.Waist.YawFollowFraction, -family.Waist.MaxYawTiltDegrees, family.Waist.MaxYawTiltDegrees) * torsoFollowScale
-		targetWaistPitch = math.clamp(rawPitchDeg * family.Waist.PitchFollowFraction, -family.Waist.MaxPitchTiltDegrees, family.Waist.MaxPitchTiltDegrees) * torsoFollowScale
- 
-		targetRootYaw = math.clamp(foldedYawDeg * family.Root.YawFollowFraction, -family.Root.MaxYawTiltDegrees, family.Root.MaxYawTiltDegrees) * torsoFollowScale
-		targetRootPitch = math.clamp(rawPitchDeg * family.Root.PitchFollowFraction, -family.Root.MaxPitchTiltDegrees, family.Root.MaxPitchTiltDegrees) * torsoFollowScale
+		targetWaistYaw = math.clamp(foldedYawDeg * family.Waist.YawFollowFraction, -family.Waist.MaxYawTiltDegrees, family.Waist.MaxYawTiltDegrees) * torsoYawRollScale
+		targetWaistPitch = math.clamp(rawPitchDeg * family.Waist.PitchFollowFraction, -family.Waist.MaxPitchTiltDegrees, family.Waist.MaxPitchTiltDegrees)
+
+		targetRootYaw = math.clamp(foldedYawDeg * family.Root.YawFollowFraction, -family.Root.MaxYawTiltDegrees, family.Root.MaxYawTiltDegrees) * torsoYawRollScale
+		targetRootPitch = math.clamp(rawPitchDeg * family.Root.PitchFollowFraction, -family.Root.MaxPitchTiltDegrees, family.Root.MaxPitchTiltDegrees)
 	else
 		self._rawYawDeltaDeg = 0
 		self._rawPitchDeltaDeg = 0

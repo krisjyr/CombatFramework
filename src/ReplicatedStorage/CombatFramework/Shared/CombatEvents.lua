@@ -40,6 +40,8 @@ local CombatEvents = {
 
 	Ragdolled = Signal.new<<(character: Model) -> ()>>(),
 	RagdollEnded = Signal.new<<(character: Model) -> ()>>(),
+
+	FootPlanted = Signal.new<<(side: FootSide, worldPosition: Vector3, stance: string?, planarSpeed: number) -> ()>>(),
 }
 
 return CombatEvents

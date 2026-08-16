@@ -61,7 +61,7 @@ local RAY_LENGTH = 6
 local FLAT_ANGLE_DEADZONE = 2 -- degrees
 
 -- Angle at which the maximum configured penalty is reached.
-local MAX_SLOPE_ANGLE = 50 -- degrees
+local MAX_SLOPE_ANGLE = 40 -- degrees
 
 -- Minimum multipliers at MAX_SLOPE_ANGLE.
 local MIN_SPEED_MULTIPLIER = 0.55

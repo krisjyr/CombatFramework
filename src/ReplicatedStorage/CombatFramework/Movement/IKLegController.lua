@@ -80,6 +80,8 @@ local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local Stances = require(CombatFramework.Shared.Config.Stances)
 local LookIKTuning = require(CombatFramework.Shared.Config.LookIKTuning)
 local LookIKMath = require(CombatFramework.Shared.LookIKMath)
+local CombatEvents = require(CombatFramework.Shared.CombatEvents)
+local FootPlanted = CombatEvents.FootPlanted
 
 local IKLegController = {}
 IKLegController.__index = IKLegController
@@ -292,7 +294,10 @@ export type IKLegControllerInstance = typeof(setmetatable(
 		_currentStrideLength: number,
 		_smoothedPolePos: { [FootSide]: Vector3? },
 		_currentForeAft: { [FootSide]: number },
-		_smoothedStrideLength: number?
+		_smoothedStrideLength: number?,
+		FootPlantedEvent: any, -- NamedSignal<(side: FootSide, worldPosition: Vector3, stance: string?, planarSpeed: number) -> ()>
+		_lastGaitPhase: { [FootSide]: number },
+		_lastPlanarSpeedForGait: number,
 	},
 	IKLegController
 ))
@@ -378,7 +383,10 @@ function IKLegController.new(character: Model, humanoid: Humanoid): IKLegControl
 		_currentStrideLength = STRIDE_LENGTH_MIN,
 		_smoothedPolePos = { Left = nil, Right = nil },
 		_currentForeAft = { Left = 0, Right = 0 },
-		_smoothedStrideLength = nil
+		_smoothedStrideLength = nil,
+		FootPlantedEvent = FootPlanted,
+		_lastGaitPhase = { Left = 0, Right = 0.5 }, -- matches the sideOffset the two feet start at
+		_lastPlanarSpeedForGait = 0,
 	}, IKLegController) :: any
 
 	self:_buildLegIK("Left")
@@ -907,6 +915,15 @@ function IKLegController._gaitFootOffset(
 	local foreAft: number
 	local lift: number
 
+	local previousPhase = self._lastGaitPhase[side]
+	if previousPhase > 0.75 and phase < 0.25 then
+		local target = self.Targets[side]
+		if target then
+			self.FootPlantedEvent:Fire(side, target.WorldPosition, self.Character:GetAttribute("CombatStance"), self._lastPlanarSpeedForGait)
+		end
+	end
+	self._lastGaitPhase[side] = phase
+
 	if phase < 0.5 then
 		local f = phase / 0.5
 		local eased = f * f * (3 - 2 * f)
@@ -1061,6 +1078,7 @@ function IKLegController._updateFootIdle(self: IKLegControllerInstance, side: Fo
 			self._footState[side] = "Planted"
 			self._currentLift[side] = 0
 			self._footPlantedCFrame[side] = desired
+			self.FootPlantedEvent:Fire(side, target.WorldPosition, stance, self._lastPlanarSpeedForGait)
 		end
 	else
 		local plantedCF = self._footPlantedCFrame[side]
@@ -1244,6 +1262,7 @@ function IKLegController.Update(self: IKLegControllerInstance, dt: number, dista
 	local velocity = self.RootPart.AssemblyLinearVelocity
 	local planarVel = Vector3.new(velocity.X, 0, velocity.Z)
 	local planarSpeed = planarVel.Magnitude
+	self._lastPlanarSpeedForGait = planarSpeed
 
 	local cadenceHz = cadenceHzFor(planarSpeed, stance)
 	local rawStrideLength = math.max(planarSpeed / cadenceHz, 0.5)
