@@ -280,6 +280,7 @@ function SoundService.PlayContinuous(category: string, sourceId: string, options
 
 	local existing = continuous[sourceId]
 	if existing then
+
 		existing.Sound.PlaybackSpeed = opts.PlaybackSpeed or existing.Sound.PlaybackSpeed
 		existing.TargetVolume = def.BaseVolume * (opts.Volume or 1)
 		existing.ExpiresAt = expiresAt

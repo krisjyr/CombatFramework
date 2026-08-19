@@ -91,6 +91,11 @@ local MovementProfiles: { [string]: MovementProfile } = {
 		Acceleration = 48, BrakingDeceleration = 60, TurnCutStrength = 0.5, -- servos offset the mass
 		JumpPower = 42, SurfaceInteraction = "Ground", AllowsJump = true, AllowsSprint = true,
 	},
+	NeuroSandevistan = {
+		Gravity = DEFAULT_GRAVITY, WalkSpeed = 8, SprintSpeedMultiplier = 32,
+		Acceleration = 200, BrakingDeceleration = 180, TurnCutStrength = 0.9, -- servos offset the mass
+		JumpPower = 24, SurfaceInteraction = "Ground", AllowsJump = true, AllowsSprint = true,
+	},
 }
 
 return MovementProfiles

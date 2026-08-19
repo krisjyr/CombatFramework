@@ -25,7 +25,7 @@ local CombatEvents = {
 
 	-- Fired by FallService.lua the instant a character lands/enters water, whether or not
 	-- damage was dealt. Clients use this for landing camera shake / sound / animation.
-	FallImpact = Signal.new<<(player: Player, peakFallSpeed: number, damageApplied: number) -> ()>>(),
+	FallImpact = Signal.new<<(player: Player, peakFallSpeed: number, damageApplied: number, landingMaterial: Enum.Material) -> ()>>(),
 
 	-- Fired by FallService.lua the moment a falling character's downward speed crosses
 	-- FallTuning.FastFallVelocity (once per fall), and again when that fall ends (landed,
@@ -38,10 +38,35 @@ local CombatEvents = {
 	-- after validation confirms it (same client/server pattern as StanceChanged).
 	LeanChanged = Signal.new<<(player: Player, direction: string) -> ()>>(),
 
-	Ragdolled = Signal.new<<(character: Model) -> ()>>(),
-	RagdollEnded = Signal.new<<(character: Model) -> ()>>(),
+	Ragdolled = Signal.new<<(character: Model, reason: string) -> ()>>(),
+	RagdollEnded = Signal.new<<(character: Model, reason: string) -> ()>>(),
 
+	MovementInputReleased = Signal.new<<(player: Player, speedAtRelease: number) -> ()>>(),
 	FootPlanted = Signal.new<<(side: FootSide, worldPosition: Vector3, stance: string?, planarSpeed: number) -> ()>>(),
+
+	-- Fired whenever a character's breath tier changes (Calm/Medium/Heavy/Wounded),
+	-- server-authoritative (BreathController), relayed to clients via BreathSync same as
+	-- FallImpact/FastFallBegan (see BreathFeedbackRelay.client.lua for why this relay step
+	-- is mandatory -- CombatEvents does NOT cross the server/client boundary on its own).
+	BreathStateChanged = Signal.new<<(player: Player, newState: string, oldState: string) -> ()>>(),
+
+	-- Fired whenever oxygen changes meaningfully (throttled server-side, not every tick) --
+	-- primarily for a future screen-vignette UI hook, but also useful for HUD/AI awareness.
+	OxygenChanged = Signal.new<<(player: Player, oxygenFraction: number) -> ()>>(),
+
+	BreathHoldStarted = Signal.new<<(player: Player) -> ()>>(),
+	-- wasForced = true when release was involuntary (MaxHoldDuration or oxygen depletion),
+	-- false when the player released the key themselves -- audio uses this to pick a calm
+	-- exhale vs. a panicked gasp.
+	BreathHoldReleased = Signal.new<<(player: Player, wasForced: boolean) -> ()>>(),
+
+	-- Fired when oxygen hits 0 while unresolved. Ch7 Consciousness System (Ch 7.7) is the
+	-- eventual real owner of what "unconscious" means -- until then, BreathController
+	-- applies a placeholder impairment and self-recovers (see its file header).
+	Asphyxiated = Signal.new<<(player: Player) -> ()>>(),
+	Recovered = Signal.new<<(player: Player) -> ()>>(), -- placeholder wake-up, see above
+
+	CoughTriggered = Signal.new<<(player: Player) -> ()>>(),
 }
 
 return CombatEvents

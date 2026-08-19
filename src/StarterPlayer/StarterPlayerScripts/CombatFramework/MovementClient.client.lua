@@ -19,7 +19,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -34,6 +33,7 @@ local InputController = require(script.Parent.InputController)
 local FirstPersonVisibility = require(script.Parent.FirstPersonVisibility)
 local FirstPersonZoomController = require(script.Parent.FirstPersonZoomController)
 local LocalBodyClearance = require(CombatFramework.Shared.LocalBodyClearance)
+local SoundService = require(CombatFramework.Shared.SoundService)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local StanceRequest = Remotes:WaitForChild("StanceRequest") :: RemoteEvent
@@ -41,6 +41,7 @@ local StanceCorrection = Remotes:WaitForChild("StanceCorrection") :: RemoteEvent
 local LeanRequest = Remotes:WaitForChild("LeanRequest") :: RemoteEvent
 local LeanCorrection = Remotes:WaitForChild("LeanCorrection") :: RemoteEvent
 local GravitySync = Remotes:WaitForChild("GravitySync") :: RemoteEvent
+local RagdollSync = Remotes:WaitForChild("RagdollSync") :: RemoteEvent
 
 local player = Players.LocalPlayer
 
@@ -61,15 +62,10 @@ local LEAN_OFFSET_STUDS = 0
 local LEAN_LERP_SPEED = 9
 local currentCameraOffset = Vector3.zero
 
-local windSound = Instance.new("Sound")
-windSound.Name = "CombatFrameworkFallWind"
-windSound.SoundId = "rbxassetid://0"
-windSound.Looped = true
-windSound.Volume = 0
-windSound.Parent = SoundService
-
-
 local cameraInertia: CameraInertiaController.CameraInertiaControllerInstance? = nil
+
+type FallSession = { RootPart: BasePart, Humanoid: Humanoid, SourceId: string }
+local activeFalls: { [Model]: FallSession } = {}
 
 local function onCharacterAdded(character: Model)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
@@ -213,32 +209,50 @@ LeanCorrection.OnClientEvent:Connect(function(correctedLean: CharacterController
 	end
 end)
 
-GravitySync.OnClientEvent:Connect(function(action: string, gravity: Vector3?, sourceId: string, priority: number?)
+RagdollSync.OnClientEvent:Connect(function(isRagdolled: boolean)
+	if controller then
+		controller:SetRagdollSuspended(isRagdolled)
+	end
+end)
+
+GravitySync.OnClientEvent:Connect(function(action: string, gravity: Vector3?, sourceId: string, priority: number?, movementProfile: string?)
 	if not controller then
 		return
 	end
-	if action == "Set" and gravity then
-		controller:SetGravityOverride(gravity, sourceId, priority)
+	if action == "Set" then
+		if gravity then
+			controller:SetGravityOverride(gravity, sourceId, priority)
+		end
+		if movementProfile then
+			controller:SetMovementProfile(movementProfile, sourceId)
+		end
 	elseif action == "Clear" then
 		controller:ClearGravityOverride(sourceId)
+		if movementProfile then
+			controller:ClearMovementProfileOverride(sourceId)
+		end
 	end
 end)
 
 -- === Fall feedback (unchanged) ===============================================
-local windTween: Tween? = nil
+
+local function fallSourceId(character: Model): string
+	return `Fall:{character:GetFullName()}`
+end
 
 CombatEvents.FastFallBegan:Connect(function(firingPlayer: Player, _downwardSpeed: number)
 	if firingPlayer ~= player then
 		return
 	end
-	if windTween then
-		windTween:Cancel()
-	end
-	if windSound.SoundId ~= "rbxassetid://0" and not windSound.IsPlaying then
-		windSound:Play()
-	end
-	windTween = TweenService:Create(windSound, TweenInfo.new(0.3), { Volume = 0.6 })
-	windTween:Play()
+
+	local sourceId = fallSourceId(firingPlayer.Character)
+	activeFalls[firingPlayer.Character] = { RootPart = firingPlayer.Character:WaitForChild("HumanoidRootPart"), Humanoid = firingPlayer.Character:WaitForChild("Humanoid"), SourceId = sourceId }
+
+	SoundService.PlayContinuous("Movement.FallWind", sourceId, {
+		Parent = rootPart,
+		Volume = 1,
+		PlaybackSpeed = 1 + 0.3 * math.clamp(_downwardSpeed / FallTuning.FastFallVelocity, 0, 1)
+	})
 
 	CameraShake.SetContinuous("FastFall", FallTuning.MaxAmbientShakeMagnitude)
 end)
@@ -247,19 +261,20 @@ CombatEvents.FastFallEnded:Connect(function(firingPlayer: Player)
 	if firingPlayer ~= player then
 		return
 	end
-	if windTween then
-		windTween:Cancel()
+
+		local session = activeFalls[firingPlayer.Character]
+	if not session then
+		return
 	end
-	windTween = TweenService:Create(windSound, TweenInfo.new(0.3), { Volume = 0 })
-	windTween:Play()
-	windTween.Completed:Once(function()
-		windSound:Stop()
-	end)
+	activeFalls[firingPlayer.Character] = nil
+	SoundService.StopContinuous(session.SourceId)
+
+	SoundService:StopContinuous("Movement.FallWind")
 
 	CameraShake.SetContinuous("FastFall", 0)
 end)
 
-CombatEvents.FallImpact:Connect(function(firingPlayer: Player, peakFallSpeed: number, _damageApplied: number)
+CombatEvents.FallImpact:Connect(function(firingPlayer: Player, peakFallSpeed: number, _damageApplied: number, _landingMaterial: Enum.Material)
 	if firingPlayer ~= player then
 		return
 	end

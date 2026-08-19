@@ -30,7 +30,13 @@
         },
         "GravitySync": {
           "$className": "RemoteEvent"
-        }
+        },
+        "FallFeedbackSync": {
+          "$className": "RemoteEvent"
+        },
+        "BreathHoldRequest": { "$className": "RemoteEvent" },
+        "BreathSync": { "$className": "RemoteEvent" },
+        "RagdollSync": { "$className": "RemoteEvent" }
       }
     },
 
@@ -81,12 +87,6 @@
         },
         "Effects": {
           "$className": "Folder",
-          "Death": {
-            "$className": "Folder",
-              "DeathScream": {
-                "$className": "Sound"
-              }
-          },
           "Hit": {
             "$className": "Folder",
             "HitFlesh": {
@@ -135,26 +135,23 @@
             "HeavyImpact": {
                 "$className": "Sound"
             },
-            "LightImpact": {
-                "$className": "Sound"
-            },
             "Equipment": {
                 "$className": "Folder",
-                "EquipmentSprint": {
-                    "$className": "Sound"
+                "Run": {
+                  "$className": "Folder",
+                  "GearRun1": { "$className": "Sound" }
                 },
-                "EquipmentWalk": {
-                    "$className": "Sound"
+                "Slow": {
+                  "$className": "Folder",
+                  "GearSlow1": { "$className": "Sound" }
                 },
-                "EquipmentSlow": {
-                    "$className": "Sound"
+                "Walk": {
+                  "$className": "Folder",
+                  "GearWalk1": { "$className": "Sound" }
                 },
                 "WeaponMechanicals": {
                     "$className": "Folder",
                     "AssaultRifleSprint1": {
-                        "$className": "Sound"
-                    },
-                    "AssaultRifleSprint2": {
                         "$className": "Sound"
                     }
                 }
@@ -163,12 +160,12 @@
                 "$className": "Folder",
                 "ClothingRun1": {
                     "$className": "Sound"
-                },
-                "ClothingRun2": {
-                    "$className": "Sound"
                 }
             },
-            "EquipmentSwitch": {
+            "EquipmentEquip": {
+                "$className": "Sound"
+            },
+            "EquipmentUnequip": {
                 "$className": "Sound"
             },
             "EquipmentDrop": {
@@ -177,23 +174,11 @@
             "EquipmentPickup": {
                 "$className": "Sound"
             },
-            "EquipmentRustle": {
-                "$className": "Sound"
-            },
-            "StanceChange": {
-                "$className": "Sound"
-            },
-            "Lean": {
+            "GearQuickTurn": {
                 "$className": "Sound"
             },
             "QuickTurn": {
                 "$className": "Sound"
-            },
-            "Slide": {
-              "$className": "Folder",
-              "SlideStart": { "$className": "Sound" },
-              "SlideLoop":  { "$className": "Sound" },
-              "SlideStop":  { "$className": "Sound" }
             },
             "Stances": {
                 "$className": "Folder",
@@ -295,36 +280,44 @@
                     "Heavy1": {
                         "$className": "Sound"
                     }
-                }
-            },
-            "HoldBreath": {
-                "$className": "Sound"
-            },
-            "ReleaseBreath": {
-                "$className": "Sound"
+                },
+                "Cough": {
+                    "$className": "Folder",
+                    "Cough1": {
+                        "$className": "Sound"
+                    }
+                },
+                "Wounded": {
+                    "$className": "Folder",
+                    "Wounded1": {
+                        "$className": "Sound"
+                    }
+                },
+                "HoldBreath": {"$className": "Sound"},
+                "ReleaseBreath": {"$className": "Sound"}
             },
             "Ricochet": {
                 "$className": "Sound"
-            },
-            "Scream": {
+            }
+          },
+          "Scream": {
+            "$className": "Folder",
+            "Incapacitated": {
               "$className": "Folder",
-              "Incapacitated": {
-                "$className": "Folder",
-                "Incapacitated1": {
-                    "$className": "Sound"
-                }
-              },
-              "Hit": {
-                "$className": "Folder",
-                "HitScream1": {
-                    "$className": "Sound"
-                }
-              },
-              "Dead": {
-                "$className": "Folder",
-                "DeathScream1": {
-                    "$className": "Sound"
-                }
+              "IncapacitatedScream1": {
+                  "$className": "Sound"
+              }
+            },
+            "Hit": {
+              "$className": "Folder",
+              "HitScream1": {
+                  "$className": "Sound"
+              }
+            },
+            "Dead": {
+              "$className": "Folder",
+              "DeadScream1": {
+                  "$className": "Sound"
               }
             }
           }

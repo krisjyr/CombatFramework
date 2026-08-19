@@ -51,12 +51,20 @@ end
 local FootstepMaterialGroups = {}
 local DEFAULT_GROUP = "Concrete"
 
---- Returns the SoundLibrary category ("Footstep.<Group>") for a floor material, falling
---- back to DEFAULT_GROUP for anything unmapped (e.g. a future material Roblox adds before
---- this table is updated) -- footsteps never go silent, they just sound generic.
+function FootstepMaterialGroups.GroupFor(material: Enum.Material): string
+	return materialToGroup[material] or DEFAULT_GROUP
+end
+
+--- Returns the SoundLibrary category ("Footstep.<Group>") for a floor material.
 function FootstepMaterialGroups.CategoryFor(material: Enum.Material): string
-	local group = materialToGroup[material] or DEFAULT_GROUP
-	return `Footstep.{group}`
+	return `Footstep.{FootstepMaterialGroups.GroupFor(material)}`
+end
+
+--- Same idea, for landing-impact sounds ("Landing.<Group>") -- same alias table, so a
+--- material added to `groups` above automatically gets both a footstep AND a landing
+--- sound with zero further changes.
+function FootstepMaterialGroups.LandingCategoryFor(material: Enum.Material): string
+	return `Landing.{FootstepMaterialGroups.GroupFor(material)}`
 end
 
 return FootstepMaterialGroups

@@ -703,20 +703,117 @@ function IKLegController.ClearHandOverride(self: IKLegControllerInstance, side: 
 	end
 end
 
-function IKLegController.SetEnabled(self: IKLegControllerInstance, enabled: boolean)
+function IKLegController.SetEnabled(
+	self: IKLegControllerInstance,
+	enabled: boolean
+)
 	self._enabled = enabled
+
 	if not enabled then
-		for _side, ik in pairs(self.LegIK) do
+		-- Disable leg IK completely.
+		for side, ik in pairs(self.LegIK) do
 			ik.Weight = 0
+			self._currentWeight[side] = 0
 		end
-		self._currentWeight.Left = 0
-		self._currentWeight.Right = 0
+
+		-- Disable hand IK completely.
+		for side, ik in pairs(self.HandIK) do
+			ik.Weight = 0
+
+			if self._currentArmWeight then
+				self._currentArmWeight[side] = 0
+			end
+		end
+
+		-- Clear all procedural overrides so a ragdoll cannot retain
+		-- an old planted foot or climbing hand target.
+		self._footOverride.Left = nil
+		self._footOverride.Right = nil
+
+		self._handOverride.Left = nil
+		self._handOverride.Right = nil
+
+		-- Disable head IK.
 		if self.HeadIK then
 			self.HeadIK.Weight = 0
 			self.HeadIK.Offset = CFrame.identity
 			self._headWeight = 0
 			self._headLeanRollDeg = 0
 		end
+	end
+end
+
+function IKLegController.ResetRagdollState(
+	self: IKLegControllerInstance
+)
+	self._gaitDistance = 0
+
+	self._footOverride.Left = nil
+	self._footOverride.Right = nil
+
+	self._handOverride.Left = nil
+	self._handOverride.Right = nil
+
+	for _, side in ipairs({ "Left", "Right" }) do
+		if self._currentWeight then
+			self._currentWeight[side] = 0
+		end
+
+		if self._currentArmWeight then
+			self._currentArmWeight[side] = 0
+		end
+
+		if self._footState then
+			self._footState[side] = "Planted"
+		end
+
+		if self._footStepT then
+			self._footStepT[side] = 0
+		end
+
+		if self._footStepStart then
+			self._footStepStart[side] = nil
+		end
+
+		if self._footPlantedCFrame then
+			self._footPlantedCFrame[side] = nil
+		end
+
+		if self._smoothedFootTarget then
+			self._smoothedFootTarget[side] = nil
+		end
+
+		if self._smoothedPolePos then
+			self._smoothedPolePos[side] = nil
+		end
+
+		if self._smoothedArmTarget then
+			self._smoothedArmTarget[side] = nil
+		end
+
+		if self._smoothedElbowPolePos then
+			self._smoothedElbowPolePos[side] = nil
+		end
+	end
+
+	if self._smoothedMoveDir then
+		self._smoothedMoveDir = Vector3.zero
+	end
+
+	if self._smoothedStrideLength then
+		self._smoothedStrideLength = nil
+	end
+
+	if self._lastPlanarSpeedForGait then
+		self._lastPlanarSpeedForGait = 0
+	end
+
+	self._headWeight = 0
+	self._headLeanRollDeg = 0
+
+	if self.HeadIK then
+		self.HeadIK.Weight = 0
+		self.HeadIK.Offset = CFrame.identity
 	end
 end
 

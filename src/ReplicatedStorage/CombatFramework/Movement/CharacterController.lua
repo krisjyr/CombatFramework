@@ -47,6 +47,8 @@ export type CharacterControllerInstance = typeof(setmetatable(
 		Momentum: MomentumController.MomentumControllerInstance?,
 
 		_ownsPhysics: boolean,
+		_hadInputLastFrame: boolean,
+		_ragdollSuspended: boolean
 	},
 	CharacterController
 ))
@@ -76,6 +78,8 @@ function CharacterController.new(player: Player, character: Model, ownsPhysics: 
 		Momentum = if ownsPhysics then MomentumController.new(rootPart :: BasePart, humanoid) else nil,
 
 		_ownsPhysics = ownsPhysics,
+		_hadInputLastFrame = false,
+		_ragdollSuspended = false,
 	}, CharacterController) :: any
 
 	self:_applyStanceModifiers(BASE_STANCE)
@@ -263,6 +267,9 @@ end
 --- frame's dt. `moveDirectionOverride`: owning client passes its InputController-derived
 --- world direction here; omit on the non-owning (server) side, where it's unused anyway.
 function CharacterController.Update(self: CharacterControllerInstance, dt: number, moveDirectionOverride: Vector3?)
+	if self._ragdollSuspended then
+		return
+	end
 	if self.Momentum then
 		local slopeSpeedMultiplier, slopeMomentumMultiplier = self.Slope:Update(dt)
 		self.Modifiers:Add({
@@ -284,6 +291,15 @@ function CharacterController.Update(self: CharacterControllerInstance, dt: numbe
 
 		local moveDirection = moveDirectionOverride or self.Humanoid.MoveDirection
 
+		local INPUT_MAGNITUDE_THRESHOLD = 0.05 -- mirrors MomentumController's own threshold
+		local hasInputNow = Vector3.new(moveDirection.X, 0, moveDirection.Z).Magnitude > INPUT_MAGNITUDE_THRESHOLD
+		local speedBeforeThisUpdate = self.Momentum:GetCurrentSpeed()
+
+		if self._hadInputLastFrame and not hasInputNow and speedBeforeThisUpdate > MOVE_SPEED_THRESHOLD then
+			CombatEvents.MovementInputReleased:Fire(self.Player, speedBeforeThisUpdate)
+		end
+		self._hadInputLastFrame = hasInputNow
+
 		self.Momentum:Update(dt, moveDirection, resolved.WalkSpeed, acceleration, braking, turnCutStrength)
 		self.Momentum:SetGravity(resolved.Gravity)
 
@@ -298,6 +314,17 @@ end
 
 function CharacterController.IsMoving(self: CharacterControllerInstance): boolean
 	return self:GetPlanarSpeed() > MOVE_SPEED_THRESHOLD
+end
+
+function CharacterController.SetRagdollSuspended(self: CharacterControllerInstance, suspended: boolean)
+	self._ragdollSuspended = suspended
+	if self.Momentum then
+		self.Momentum:SetSuspended(suspended)
+	end
+end
+
+function CharacterController.IsRagdollSuspended(self: CharacterControllerInstance): boolean
+	return self._ragdollSuspended
 end
 
 function CharacterController.GetPlanarSpeed(self: CharacterControllerInstance): number

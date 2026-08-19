@@ -67,6 +67,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	character:SetAttribute("CombatLean", characterController.LeanState)
 
 	humanoid.StateChanged:Connect(function(_old, new)
+		if character:GetAttribute("Ragdolled") then
+			return
+		end
 		if new == Enum.HumanoidStateType.Freefall or new == Enum.HumanoidStateType.Jumping then
 			if characterController.CurrentStance ~= "Jumping" then
 				preJumpStance[player] = characterController.CurrentStance
@@ -107,6 +110,9 @@ end)
 
 StanceRequest.OnServerEvent:Connect(function(player: Player, newStance: unknown)
 	if typeof(newStance) ~= "string" then
+		return
+	end
+	if player.Character and player.Character:GetAttribute("Ragdolled") then
 		return
 	end
 

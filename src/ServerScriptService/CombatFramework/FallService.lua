@@ -68,6 +68,8 @@ local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
 local Signal = require(ReplicatedStorage.Packages.namedsignal)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local FallTuning = require(CombatFramework.Shared.Config.FallTuning)
+local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
+local FallFeedbackSync = Remotes:WaitForChild("FallFeedbackSync") :: RemoteEvent
 
 export type MaterialsDamageOptions = { [string]: number }
 
@@ -129,6 +131,33 @@ local function getEffectiveOptions(character: Model): FallOptions
 	local custom = customData[character]
 	local group = groupOfCharacter[character]
 	return (custom and custom.Options) or (group and group.Options) or {}
+end
+
+local function resolveLandingMaterial(character: Model, rootPart: BasePart, humanoidFloorMaterial: Enum.Material): Enum.Material
+	-- Humanoid.FloorMaterial can momentarily read Air right at the exact instant the
+	-- Landed state transition fires (known Roblox engine timing quirk) -- FootstepMaterial
+	-- Groups has no alias for Air, so that silently falls to DEFAULT_GROUP ("Concrete"),
+	-- which is indistinguishable from "material detection is broken" even though every
+	-- other part of the pipeline is working correctly. A direct downward raycast is immune
+	-- to that timing gap -- same technique SlopeController/IKLegController already use to
+	-- read the floor instead of trusting a Humanoid property.
+	if humanoidFloorMaterial ~= Enum.Material.Air then
+		return humanoidFloorMaterial
+	end
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { character }
+	params.IgnoreWater = false
+
+	local hit = Workspace:Raycast(rootPart.Position, Vector3.new(0, -10, 0), params)
+	if hit and hit.Instance.Material ~= Enum.Material.Air then
+		return hit.Instance.Material
+	end
+
+	print("No hits")
+
+	return humanoidFloorMaterial -- genuinely airborne/no floor found -- pass through as-is
 end
 
 local function calculateDamage(
@@ -203,6 +232,7 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 				entry.FastFallSignaled = false
 				if entry.Player then
 					CombatEvents.FastFallEnded:Fire(entry.Player)
+					FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player) -- ADD
 				end
 			end
 
@@ -216,7 +246,9 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 			local curveExponent = options.Curve or FallTuning.Curve
 			local materialsDamage: MaterialsDamageOptions = options.MaterialsDamage or {}
 
-			local landingMaterial = humanoid.FloorMaterial
+			print("[FallService] raw FloorMaterial at landing:", humanoid.FloorMaterial)
+			local landingMaterial = resolveLandingMaterial(character, entry.RootPart, humanoid.FloorMaterial)
+			print("[FallService] resolved landing material:", landingMaterial)
 			local materialMultiplier = materialsDamage[landingMaterial.Name]
 
 			local damage = 0
@@ -250,7 +282,8 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 			end
 
 			if entry.Player then
-				CombatEvents.FallImpact:Fire(entry.Player, entry.PeakDownwardVelocity, damage)
+				CombatEvents.FallImpact:Fire(entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial)
+				FallFeedbackSync:FireAllClients("FallImpact", entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial) -- ADD
 			end
 
 			entry.PeakDownwardVelocity = 0
@@ -276,6 +309,7 @@ RunService.Heartbeat:Connect(function()
 					entry.FastFallSignaled = true
 					if entry.Player then
 						CombatEvents.FastFallBegan:Fire(entry.Player, downwardSpeed)
+						FallFeedbackSync:FireAllClients("FastFallBegan", entry.Player, downwardSpeed) -- ADD
 					end
 				end
 			end

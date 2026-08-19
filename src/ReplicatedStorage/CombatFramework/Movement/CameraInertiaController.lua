@@ -110,7 +110,7 @@ local NECK_PIVOT_OFFSET = Vector3.new(0, 1.7, -0.1)      -- pivot point, base of
 local EYE_LOCAL_OFFSET = Vector3.new(0, 0.25, -0.25)  -- eye relative to pivot, slight forward
 local WALL_CLEARANCE = 0.3    
 
-local PIVOT_POSITION_MAX_STEP_STUDS_PER_SEC = 55 -- studs/s
+local PIVOT_POSITION_MAX_STEP_STUDS_PER_SEC = 1000 -- studs/s
 local HEAD_ROLL_MAX_STEP_DEG_PER_SEC = 720 -- deg/s
 
 -- new fields on the instance: BodyYaw: number, Freelooking: boolean
@@ -406,7 +406,17 @@ function CameraInertiaController.Update(self, dt)
 			Parent = self.RootPart,
 			Volume = math.clamp(math.abs(self._bodyTurnRateDegPerSec) / 1440, 0, 1.0),
 		})
+
+		local gearLoad = self.Humanoid.Parent:GetAttribute("GearLoad")
+
+		if gearCategory and typeof(gearLoad) == "number" and gearLoad > 0 then
+			SoundService.Play("Movement.GearQuickTurn", {
+				Parent = self.RootPart,
+				Volume = math.clamp(math.abs(self._bodyTurnRateDegPerSec) / 1440, 0, 1.0) * math.clamp(gearLoad/2, 0, 1),
+			})
+		end
 	end
+
 
 -- === Apply — body-relative pivot, arcing eyes, wall-clip prevention ==============
 	local rootCFrame = self.RootPart.CFrame

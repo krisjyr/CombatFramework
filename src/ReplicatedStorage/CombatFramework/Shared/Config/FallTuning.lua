@@ -14,13 +14,13 @@ return {
 	-- MinDistance barely hurts, and damage ramps sharply only as you approach LethalDistance
 	-- — i.e. low falls stay forgiving, but you need real height to actually die.
 	MinDistance = 10, -- studs
-	LethalDistance = 65, -- studs of equivalent fall distance (see FallService for how this converts from velocity)
+	LethalDistance = 45, -- studs of equivalent fall distance (see FallService for how this converts from velocity)
 	DamageMultiplier = 1,
 	Curve = 2.2,
 
 	-- === Fall feedback (air sound + screenshake) ===
 	FastFallVelocity = 60, -- studs/s downward; crossing this starts the air-rush sound + ambient shake
-	NotableLandingVelocity = 40, -- studs/s downward; landings faster than this get an impact camera shake
+	NotableLandingVelocity = 60, -- studs/s downward; landings faster than this get an impact camera shake
 	MaxImpactShakeMagnitude = 6,
 	MaxImpactShakeDuration = 0.5,
 	MaxAmbientShakeMagnitude = 1.5,
