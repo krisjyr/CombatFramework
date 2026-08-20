@@ -36,6 +36,7 @@ local CharacterController = require(CombatFramework.Movement.CharacterController
 local AnimationController = require(CombatFramework.Movement.AnimationController)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local SoundService = require(CombatFramework.Shared.SoundService)
+local RagdollController = require(CombatFramework.Ragdoll.RagdollController)
 
 local ControllerRegistry = require(script.Parent.ControllerRegistry)
 
@@ -67,9 +68,10 @@ local function onCharacterAdded(player: Player, character: Model)
 	character:SetAttribute("CombatLean", characterController.LeanState)
 
 	humanoid.StateChanged:Connect(function(_old, new)
-		if character:GetAttribute("Ragdolled") then
+		if RagdollController.IsRagdolled(character) then
 			return
 		end
+
 		if new == Enum.HumanoidStateType.Freefall or new == Enum.HumanoidStateType.Jumping then
 			if characterController.CurrentStance ~= "Jumping" then
 				preJumpStance[player] = characterController.CurrentStance
@@ -112,9 +114,10 @@ StanceRequest.OnServerEvent:Connect(function(player: Player, newStance: unknown)
 	if typeof(newStance) ~= "string" then
 		return
 	end
-	if player.Character and player.Character:GetAttribute("Ragdolled") then
+	if character and RagdollController.IsRagdolled(character) then
 		return
 	end
+
 
 	local now = os.clock()
 	if now - (lastRequestAt[player] or 0) < MIN_REQUEST_INTERVAL then
@@ -135,6 +138,11 @@ end)
 
 LeanRequest.OnServerEvent:Connect(function(player: Player, direction: unknown)
 	if typeof(direction) ~= "string" then
+		return
+	end
+
+	local character = player.Character
+	if character and RagdollController.IsRagdolled(character) then
 		return
 	end
 
@@ -193,7 +201,11 @@ CombatEvents.LeanChanged:Connect(function(player: Player, direction: string)
 end)
 
 RunService.Heartbeat:Connect(function(dt: number)
-	for _player, entry in pairs(ControllerRegistry.All()) do
+	for player, entry in pairs(ControllerRegistry.All()) do
+		local character = player.Character
+		if character and RagdollController.IsRagdolledAttribute(character) then
+			continue
+		end
 		entry.Character:Update(dt)
 		entry.Animation:SetMoving(entry.Character:IsMoving())
 	end

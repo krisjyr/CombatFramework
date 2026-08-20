@@ -163,6 +163,23 @@ function CharacterController.TryChangeStance(self: CharacterControllerInstance, 
 	return true
 end
 
+function CharacterController.ForceSetStance(self: CharacterControllerInstance, stanceName: string): (boolean, string?)
+	if Stances[stanceName] == nil then
+		return false, `Unknown stance: {stanceName}`
+	end
+	local old = self.CurrentStance
+	self.CurrentStance = stanceName
+	self:_applyStanceModifiers(stanceName)
+	if not Stances[stanceName].CanLean and self.LeanState ~= "None" then
+		self:TrySetLean("None")
+	end
+	if old ~= stanceName then
+		CombatEvents.StanceChanged:Fire(self.Player, stanceName, old)
+	end
+	return true
+end
+
+
 function CharacterController._applyStanceModifiers(self: CharacterControllerInstance, stanceName: string)
 	self.Modifiers:RemoveAllFromSource("Stance")
 	local def = Stances[stanceName]
@@ -314,17 +331,6 @@ end
 
 function CharacterController.IsMoving(self: CharacterControllerInstance): boolean
 	return self:GetPlanarSpeed() > MOVE_SPEED_THRESHOLD
-end
-
-function CharacterController.SetRagdollSuspended(self: CharacterControllerInstance, suspended: boolean)
-	self._ragdollSuspended = suspended
-	if self.Momentum then
-		self.Momentum:SetSuspended(suspended)
-	end
-end
-
-function CharacterController.IsRagdollSuspended(self: CharacterControllerInstance): boolean
-	return self._ragdollSuspended
 end
 
 function CharacterController.GetPlanarSpeed(self: CharacterControllerInstance): number

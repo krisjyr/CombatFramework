@@ -35,8 +35,7 @@
           "$className": "RemoteEvent"
         },
         "BreathHoldRequest": { "$className": "RemoteEvent" },
-        "BreathSync": { "$className": "RemoteEvent" },
-        "RagdollSync": { "$className": "RemoteEvent" }
+        "BreathSync": { "$className": "RemoteEvent" }
       }
     },
 

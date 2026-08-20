@@ -78,14 +78,16 @@ local function setup(player: Player, character: Model)
 
 	local function applyRagdollState()
 		local ragdolled =
-			character:GetAttribute("Ragdolled") == true
+			humanoid:GetAttribute("Ragdolled") == true
 
 		if ragdolled then
 			-- Clear any planted-foot / step / arm state before disabling.
+			print("Clearning IK state for ragdoll")
 			if legController.ResetRagdollState then
 				legController:ResetRagdollState()
 			end
 
+			print("Disabling IK for ragdoll")
 			legController:SetEnabled(false)
 
 			if torsoController then
@@ -103,10 +105,11 @@ local function setup(player: Player, character: Model)
 				return
 			end
 
-			if character:GetAttribute("Ragdolled") == true then
+			if humanoid:GetAttribute("Ragdolled") == true then
 				return
 			end
 
+			print("Enabling IK for ragdoll")
 			if legController.ResetRagdollState then
 				legController:ResetRagdollState()
 			end
@@ -120,7 +123,7 @@ local function setup(player: Player, character: Model)
 	end
 
 	local attributeConn =
-		character:GetAttributeChangedSignal("Ragdolled"):Connect(
+		humanoid:GetAttributeChangedSignal("Ragdolled"):Connect(
 			applyRagdollState
 		)
 
@@ -188,7 +191,8 @@ RunService.Heartbeat:Connect(function(dt: number)
 
 	for character, entry in pairs(entries) do
 		-- Do not let ANY procedural body system touch a ragdolled character.
-		if character:GetAttribute("Ragdolled") == true then
+		local humanoid = character:FindFirstChild("Humanoid")
+		if humanoid:GetAttribute("Ragdolled") == true then
 			continue
 		end
 

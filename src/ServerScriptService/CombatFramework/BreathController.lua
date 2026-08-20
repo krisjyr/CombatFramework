@@ -38,7 +38,7 @@ local BreathTuning = require(CombatFramework.Shared.Config.BreathTuning)
 local ModifierStack = require(CombatFramework.Shared.ModifierStack)
 
 local ControllerRegistry = require(script.Parent.ControllerRegistry)
-local RagdollService = require(script.Parent.RagdollService)
+local RagdollAPI = require(script.Parent.RagdollAPI)
 
 local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
 local BreathHoldRequest = Remotes:WaitForChild("BreathHoldRequest") :: RemoteEvent
@@ -97,7 +97,7 @@ local function applyAsphyxiation(entry: Entry)
 		})
 	end
 
-    RagdollService.Enter(entry.Player.Character, { Reason = "Asphyxiation" })
+    RagdollAPI:Ragdoll(entry.Player.Character, "Manual")
 
 	task.delay(BreathTuning.AsphyxiationRecoverTime, function()
 		if not entries[entry.Player] or entries[entry.Player] ~= entry then
@@ -117,7 +117,7 @@ local function applyAsphyxiation(entry: Entry)
 			recoverEntry.Character.Modifiers:RemoveAllFromSource("Asphyxiation")
 		end
 
-        RagdollService.Exit(entry.Player.Character, { WakeStance = "Prone" })
+        RagdollAPI:Unragdoll(entry.Player.Character)
 
 		CombatEvents.Recovered:Fire(entry.Player)
 		BreathSync:FireAllClients("Recovered", entry.Player)

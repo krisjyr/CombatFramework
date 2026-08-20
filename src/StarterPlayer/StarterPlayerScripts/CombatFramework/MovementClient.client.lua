@@ -41,7 +41,6 @@ local StanceCorrection = Remotes:WaitForChild("StanceCorrection") :: RemoteEvent
 local LeanRequest = Remotes:WaitForChild("LeanRequest") :: RemoteEvent
 local LeanCorrection = Remotes:WaitForChild("LeanCorrection") :: RemoteEvent
 local GravitySync = Remotes:WaitForChild("GravitySync") :: RemoteEvent
-local RagdollSync = Remotes:WaitForChild("RagdollSync") :: RemoteEvent
 
 local player = Players.LocalPlayer
 
@@ -56,6 +55,8 @@ local inputController = InputController.new()
 
 local controller: CharacterController.CharacterControllerInstance? = nil
 local tacticalWalkHeld = false
+local ragdollAttributeConn: RBXScriptConnection? = nil
+local currentCharacter: Model? = nil
 
 -- Lean camera feel tuning.
 local LEAN_OFFSET_STUDS = 0
@@ -67,12 +68,49 @@ local cameraInertia: CameraInertiaController.CameraInertiaControllerInstance? = 
 type FallSession = { RootPart: BasePart, Humanoid: Humanoid, SourceId: string }
 local activeFalls: { [Model]: FallSession } = {}
 
+local function isCurrentCharacterRagdolled(): boolean
+	return currentCharacter ~= nil and currentCharacter:GetAttribute("Ragdolled") == true
+end
+
+local function applyRagdollStateToMomentum(character: Model)
+	if not controller or not controller.Momentum then
+		return
+	end
+ 
+	if character:GetAttribute("Ragdolled") == true then
+		controller.Momentum:SetEnabled(false)
+		return
+	end
+ 
+	-- Deferred re-enable: give the server's restored Motor6Ds one frame's head start
+	-- before Momentum starts pushing HumanoidRootPart around again.
+	task.defer(function()
+		if not character.Parent or character:GetAttribute("Ragdolled") == true then
+			return
+		end
+		if controller and controller.Momentum and currentCharacter == character then
+			controller.Momentum:SetEnabled(true)
+		end
+	end)
+end
+
+
 local function onCharacterAdded(character: Model)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 	local rootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
 	controller = CharacterController.new(player, character, true)
 	cameraInertia = CameraInertiaController.new(workspace.CurrentCamera, humanoid, rootPart, controller)
 	currentCameraOffset = Vector3.zero
+
+	if ragdollAttributeConn then
+		ragdollAttributeConn:Disconnect()
+	end
+	ragdollAttributeConn = character:GetAttributeChangedSignal("Ragdolled"):Connect(function()
+		applyRagdollStateToMomentum(character)
+	end)
+	-- Cover the (unlikely but possible) case of spawning already-ragdolled.
+	applyRagdollStateToMomentum(character)
+
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
@@ -95,9 +133,10 @@ end
 -- === Stance / Lean (unchanged from before) ==================================
 
 local function requestStance(newStance: string)
-	if not controller then
+	if not controller or isCurrentCharacterRagdolled() then
 		return
 	end
+
 	local ok = controller:TryChangeStance(newStance)
 	if ok then
 		StanceRequest:FireServer(newStance)
@@ -105,9 +144,10 @@ local function requestStance(newStance: string)
 end
 
 local function requestLean(direction: CharacterController.LeanDirection)
-	if not controller then
+	if not controller or isCurrentCharacterRagdolled() then
 		return
 	end
+
 	local ok = controller:TrySetLean(direction)
 	if ok then
 		LeanRequest:FireServer(direction)
@@ -154,6 +194,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
+	if isCurrentCharacterRagdolled() then
+		return
+	end
+
+
 	if input.KeyCode == Enum.KeyCode.C then
 		handleCrouchPress()
 	elseif input.KeyCode == Enum.KeyCode.X then
@@ -176,6 +221,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input, _gameProcessed)
+	if isCurrentCharacterRagdolled() then
+		return
+	end
+
 	if input.KeyCode == Enum.KeyCode.LeftShift then
 		if controller and controller.CurrentStance == "TacticalSprint" then
 			requestStance(if tacticalWalkHeld then "TacticalWalk" else "Standing")
@@ -206,12 +255,6 @@ end)
 LeanCorrection.OnClientEvent:Connect(function(correctedLean: CharacterController.LeanDirection)
 	if controller then
 		controller.LeanState = correctedLean
-	end
-end)
-
-RagdollSync.OnClientEvent:Connect(function(isRagdolled: boolean)
-	if controller then
-		controller:SetRagdollSuspended(isRagdolled)
 	end
 end)
 
@@ -346,6 +389,11 @@ RunService.Heartbeat:Connect(function(dt: number)
 	if not controller then
 		return
 	end
+	if isCurrentCharacterRagdolled() then
+		return
+	end
+
+
 
 	local camera = workspace.CurrentCamera
 	local moveDirection = if camera then inputController:GetWorldMoveDirection(camera) else Vector3.zero

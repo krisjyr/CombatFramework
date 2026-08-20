@@ -67,6 +67,35 @@ local CombatEvents = {
 	Recovered = Signal.new<<(player: Player) -> ()>>(), -- placeholder wake-up, see above
 
 	CoughTriggered = Signal.new<<(player: Player) -> ()>>(),
+
+	 
+	-- Fired the instant a character enters ragdoll, SERVER-side only (Ch 1.3). `player`
+	-- is nil for non-player (future AI, Ch 13) entities. Any system that runs its own
+	-- per-frame update on the character (CharacterController/MomentumController's
+	-- Heartbeat loop, AnimationController, a future TorsoAim/LookController, etc.) should
+	-- subscribe and pause itself for this character rather than polling every frame.
+	RagdollBegan = Signal.new<<(character: Model, cause: string, player: Player?) -> ()>>(),
+ 
+	-- Fired once Motor6Ds/collision/network-ownership are restored. Does NOT imply the
+	-- character has finished standing up -- see WokeUp below for that.
+	RagdollEnded = Signal.new<<(character: Model) -> ()>>(),
+ 
+	-- Fired once an alive character has finished the ragdoll->Prone recovery sequence
+	-- (RagdollServer.lua) and is safe to control again.
+	WokeUp = Signal.new<<(player: Player) -> ()>>(),
+
+	-- Fired by CorpseHandler.lua the moment a corpse clone is created (before it's had any
+	-- chance to settle see CorpseSettled for that).
+	CorpseCreated = Signal.new<<(corpse: Model, sourceCharacter: Model) -> ()>>(),
+ 
+	-- Fired by CorpseHandler.lua once a dead character's ragdoll has settled and been
+	-- anchored in place.
+	CorpseSettled = Signal.new<<(corpse: Model) -> ()>>(),
+ 
+	-- Fired by CorpseHandler.lua when a settled/anchored corpse is touched/interacted with
+	-- and becomes physically movable again.
+	CorpseDisturbed = Signal.new<<(corpse: Model) -> ()>>(),
+
 }
 
 return CombatEvents

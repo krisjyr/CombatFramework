@@ -287,31 +287,10 @@ function MomentumController.SetGravity(self: MomentumControllerInstance, gravity
 	self.VectorForce.Force = Vector3.new(0, (desiredAccelY - engineAccelY) * mass, 0)
 end
 
-function MomentumController.SetSuspended(self: MomentumControllerInstance, suspended: boolean)
-	self.VectorForce.Enabled = not suspended
-
-	if suspended then
-		-- Stop driving the Humanoid at all while ragdolled -- CharacterController.Update()
-		-- already skips calling Momentum:Update() (and therefore Humanoid:Move) once
-		-- suspended, but WalkSpeed and the gravity-override VectorForce are set here
-		-- directly rather than through Update(), so they need to be silenced explicitly.
-		self._currentSpeed = 0
-		self._pivoting = false
-		self._pivotTargetDirection = nil
-		self._turnSpeedCapActive = false
-		self.Humanoid.WalkSpeed = 0
-	else
-		-- Resync from the character's ACTUAL velocity (wherever the ragdoll ended up
-		-- moving) instead of resuming from a stale pre-ragdoll speed/heading, which would
-		-- otherwise cause a lurch the instant standing back up. Facing is cleared so the
-		-- next Update() just takes current input directly rather than rotating from a
-		-- stale pre-ragdoll facing.
-		local actual = self.RootPart.AssemblyLinearVelocity
-		self._currentSpeed = Vector3.new(actual.X, 0, actual.Z).Magnitude
-		self._facingDirection = nil
-		self.Humanoid.WalkSpeed = self._currentSpeed
-	end
+function MomentumController.SetEnabled(self: MomentumControllerInstance, enabled: boolean)
+	self.VectorForce.Enabled = enabled
 end
+
 
 
 function MomentumController.Destroy(self: MomentumControllerInstance)
