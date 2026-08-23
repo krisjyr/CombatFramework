@@ -48,4 +48,34 @@ return {
 	-- for a corpse clone (CorpseHandler.lua): try Dead first; if limbs still don't collide
 	-- on corpses, switch this to Enum.HumanoidStateType.Physics instead.
 	CorpseHumanoidState = Enum.HumanoidStateType.Physics,
+
+    -- RagdollSounds.lua: how hard a limb has to decelerate (studs/s, one-frame delta) to
+    -- count as a landing worth a sound at all, the delta at which it's classified "Medium"
+    -- rather than "Soft", and the delta at/above which it's "Hard"/full intensity.
+    SoundImpactMinSpeed = 5,
+    SoundImpactMediumSpeed = 9,
+    SoundImpactHardSpeed = 16,
+    -- Minimum time between impact sounds on the same ragdoll — a single landing usually
+    -- decelerates several limbs within a frame or two of each other; without this you'd
+    -- get a burst of near-simultaneous impact sounds instead of one.
+    SoundImpactCooldown = 0.35,
+
+    -- RagdollSounds.lua: horizontal root speed (studs/s) needed to start/keep a scrape
+    -- loop, and the speed at which it reaches full volume.
+    SoundScrapeMinSpeed = 3,
+    SoundScrapeMaxSpeed = 40,
+
+	-- RagdollSounds.lua: how far (studs) straight down from the root a raycast has to hit
+    -- a surface to count as "grounded" for scrape purposes. Small on purpose -- this is
+    -- checking "is the ragdoll riding along this surface right now", not doing a general
+    -- floor-find (contrast with RagdollServer's wake-up raycast, which casts 50 studs to
+    -- find A floor to stand on, not to gate a per-frame condition).
+    SoundScrapeGroundDistance = 3,
+
+	SoundScrapeSafetyTTL = 1.5,
+
+    -- Whether "Death" ragdolls (not just Impulse/Manual) get impact/scrape sounds. Off
+    -- would mean corpses fall silently; on (default) means a corpse hitting the ground or
+    -- sliding down a slope still sounds physical.
+    PlaySoundsOnDeath = true,
 }

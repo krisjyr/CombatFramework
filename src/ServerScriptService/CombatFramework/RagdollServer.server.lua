@@ -33,6 +33,7 @@ local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local RagdollAPI = require(script.Parent.RagdollAPI)
 local CorpseHandler = require(script.Parent.CorpseHandler)
 local ControllerRegistry = require(script.Parent.ControllerRegistry)
+local RagdollSounds = require(script.Parent.RagdollSounds)
 
 -- Generation counters make repeated/duplicate schedule calls (e.g. RagdollAPI:Unragdoll
 -- calling scheduleWakeUp(character, 0) while a longer timer is already pending) safe: only

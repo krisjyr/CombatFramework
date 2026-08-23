@@ -97,6 +97,23 @@ local SoundLibrary: { [string]: SoundDefinition } = {
 
 	["Breathing.Hold"]    = { FolderPath = { ROOT, "Effects", "Other", "Breathing", "HoldBreath" }, BaseVolume = 0.4, PitchVariance = 0.05, MaxDistance = 15 },
 	["Breathing.Release"] = { FolderPath = { ROOT, "Effects", "Other", "Breathing", "ReleaseBreath" }, BaseVolume = 0.5, PitchVariance = 0.05, MaxDistance = 18 },
+
+	-- Ragdoll
+	["Ragdoll.ImpactHard"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Hard" }, BaseVolume = 0.5, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactMedium"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Medium" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactSoft"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Soft" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactSnowHard"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Snow", "Hard" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactSnowSoft"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Snow", "Soft" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactSnowMedium"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Snow", "Medium" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactWater"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Water" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactWoodHard"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Wood", "Hard" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactWoodSoft"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Wood", "Soft" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ImpactWoodMedium"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Impacts", "Wood", "Medium" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+
+	["Ragdoll.ScrapeConcrete"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Scrape", "Concrete" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ScrapeGeneric"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Scrape", "Generic" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ScrapeWood"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Scrape", "Wood" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
+	["Ragdoll.ScrapeSnow"] = { FolderPath = { ROOT, "Effects", "Ragdoll", "Scrape", "Snow" }, BaseVolume = 0.3, PitchVariance = 0.05, MaxDistance = 30 },
 }
 
 return SoundLibrary
