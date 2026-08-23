@@ -78,10 +78,12 @@ local HIP_LIMITS: SocketLimits = { MaxFrictionTorque = 25, UpperAngle = 75, Twis
 local KNEE_LIMITS: SocketLimits = { MaxFrictionTorque = 25, Restitution = 0.2, TwistLowerAngle = -110, TwistUpperAngle = 0 }
 local WRIST_LIMITS: SocketLimits = { MaxFrictionTorque = 25, UpperAngle = 20, TwistLowerAngle = -70, TwistUpperAngle = 40 }
 local ANKLE_LIMITS: SocketLimits = { MaxFrictionTorque = 25, UpperAngle = 10, TwistLowerAngle = -45, TwistUpperAngle = 25 }
+local ROOT_LIMITS: SocketLimits = { MaxFrictionTorque = 30, UpperAngle = 15, TwistLowerAngle = -20, TwistUpperAngle = 20 }
  
 local RagdollConstraintLimits: { [string]: SocketLimits } = {
 	Neck = NECK_LIMITS,
 	Waist = WAIST_LIMITS,
+	Root = ROOT_LIMITS,
  
 	RightShoulder = SHOULDER_LIMITS,
 	LeftShoulder = SHOULDER_LIMITS,

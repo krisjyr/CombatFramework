@@ -45,6 +45,8 @@ type ScrapeSession = {
 local active: { [Model]: SoundState } = {}
 local activeScrapes: { [Model]: ScrapeSession } = {}
 
+local RagdollSounds = {}
+
 local scrapeRayParams = RaycastParams.new()
 scrapeRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -212,29 +214,8 @@ end
 
 -- === Lifecycle ===========================================================
 
-local function stopTracking(character: Model)
-	local state = active[character]
-	if not state then
-		return
-	end
-	active[character] = nil
-	state.HeartbeatConn:Disconnect()
-	if state.DestroyingConn then
-		state.DestroyingConn:Disconnect()
-	end
-	stopScrape(character)
-end
-
-CombatEvents.RagdollBegan:Connect(function(character: Model, cause: string, _player: Player?)
+local function beginTracking(character: Model, rootPart: BasePart)
 	if active[character] then
-		return
-	end
-	if cause == "Death" and not RagdollTuning.PlaySoundsOnDeath then
-		return
-	end
-
-	local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not rootPart then
 		return
 	end
 
@@ -252,9 +233,6 @@ CombatEvents.RagdollBegan:Connect(function(character: Model, cause: string, _pla
 		updateScrape(character, rootPart)
 	end)
 
-	-- "Death" ragdolls never fire RagdollEnded (they stay ragdolled until CorpseHandler
-	-- clones+destroys the original at respawn -- see RagdollAPI.lua), so this is the only
-	-- cleanup hook for that path.
 	local ok, connOrErr = pcall(function()
 		return character.Destroying:Connect(function()
 			stopTracking(character)
@@ -265,10 +243,50 @@ CombatEvents.RagdollBegan:Connect(function(character: Model, cause: string, _pla
 	end
 
 	active[character] = state
+end
+
+local function stopTracking(character: Model)
+	local state = active[character]
+	if not state then
+		return
+	end
+	active[character] = nil
+	state.HeartbeatConn:Disconnect()
+	if state.DestroyingConn then
+		state.DestroyingConn:Disconnect()
+	end
+	stopScrape(character)
+end
+
+CombatEvents.RagdollBegan:Connect(function(character: Model, cause: string, _player: Player?)
+	if cause == "Death" and not RagdollTuning.PlaySoundsOnDeath then
+		return
+	end
+	local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then
+		return
+	end
+	beginTracking(character, rootPart)
 end)
 
 CombatEvents.RagdollEnded:Connect(function(character: Model)
 	stopTracking(character)
 end)
 
-return true
+function RagdollSounds.TrackCorpse(corpseModel: Model)
+	if not RagdollTuning.PlaySoundsOnDeath then
+		return
+	end
+	local rootPart = corpseModel:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then
+		warn(`RagdollSounds.TrackCorpse: {corpseModel:GetFullName()} has no HumanoidRootPart -- skipping`)
+		return
+	end
+	beginTracking(corpseModel, rootPart)
+end
+
+function RagdollSounds.StopTracking(character: Model)
+	stopTracking(character)
+end
+
+return RagdollSounds

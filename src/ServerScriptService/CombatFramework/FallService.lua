@@ -185,6 +185,83 @@ end
 
 -- === per-character internal tracking (not part of the public API) =====
 
+local function handleLanding(character: Model, entry: CharacterEntry, landedHumanoidState: Enum.HumanoidStateType?)
+	entry.IsFalling = false
+
+	if entry.FastFallSignaled then
+		entry.FastFallSignaled = false
+		if entry.Player then
+			CombatEvents.FastFallEnded:Fire(entry.Player)
+			FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player)
+		end
+	end
+
+	local custom = customData[character]
+	local group = groupOfCharacter[character]
+	local options = getEffectiveOptions(character)
+
+	local minDistance = (custom and custom.MinDistance) or (group and group.MinDistance) or FallTuning.MinDistance
+	local damageMultiplier = (custom and custom.DamageMultiplier) or (group and group.DamageMultiplier) or FallTuning.DamageMultiplier
+	local lethalDistance = options.LethalDistance or FallTuning.LethalDistance
+	local curveExponent = options.Curve or FallTuning.Curve
+	local materialsDamage: MaterialsDamageOptions = options.MaterialsDamage or {}
+
+	local rawFloorMaterial = entry.Humanoid.FloorMaterial
+	local landingMaterial = resolveLandingMaterial(character, entry.RootPart, rawFloorMaterial)
+	local materialMultiplier = materialsDamage[landingMaterial.Name]
+
+	local damage = 0
+	local equivalentDistance = 0
+
+	local isSwimming = landedHumanoidState == Enum.HumanoidStateType.Swimming
+	if isSwimming or materialMultiplier == 0 then
+		damage = 0
+	else
+		local gravity = Workspace.Gravity
+		damage, equivalentDistance = calculateDamage(
+			entry.PeakDownwardVelocity,
+			gravity,
+			minDistance,
+			damageMultiplier * (materialMultiplier or 1),
+			lethalDistance,
+			curveExponent
+		)
+	end
+
+	if damage > 0 and entry.Humanoid.Health > 0 then
+		entry.Humanoid:TakeDamage(damage)
+	end
+
+	if entry.FallSignal then
+		entry.FallSignal:Fire({
+			PeakFallSpeed = entry.PeakDownwardVelocity,
+			EquivalentDistance = equivalentDistance,
+			Damage = damage,
+			LandingMaterial = landingMaterial,
+		})
+	end
+
+	if entry.Player then
+		CombatEvents.FallImpact:Fire(entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial)
+		FallFeedbackSync:FireAllClients("FallImpact", entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial)
+	end
+
+	-- Was `entry.Player.Character` before -- wrong if entry.Player is nil (non-player
+	-- entries) and redundant otherwise; `character` is already the right instance.
+	if entry.Humanoid.Health > 0 and RagdollAPI:IsRagdolled(character) then
+		-- add timed wakeup to ragdoll if the character is still alive and ragdolled
+		local duration = FallTuning.RagdollOnLandingDuration
+		if duration < math.huge then
+			task.spawn(function()
+				task.wait(duration)
+				RagdollAPI:Unragdoll(character)
+			end)
+		end
+	end
+
+	entry.PeakDownwardVelocity = 0
+end
+
 local function ensureEntry(character: Model, player: Player?): CharacterEntry
 	local existing = characterEntries[character]
 	if existing then
@@ -211,7 +288,7 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 	}
 	characterEntries[character] = entry
 
-	local stateConn = humanoid.StateChanged:Connect(function(_old, new)
+		local stateConn = humanoid.StateChanged:Connect(function(_old, new)
 		if not entry.Enabled then
 			return
 		end
@@ -228,71 +305,7 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 			or new == Enum.HumanoidStateType.Running
 
 		if isLandingState and entry.IsFalling then
-			entry.IsFalling = false
-
-			if entry.FastFallSignaled then
-				entry.FastFallSignaled = false
-				if entry.Player then
-					CombatEvents.FastFallEnded:Fire(entry.Player)
-					FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player) -- ADD
-				end
-			end
-
-			local custom = customData[character]
-			local group = groupOfCharacter[character]
-			local options = getEffectiveOptions(character)
-
-			local minDistance = (custom and custom.MinDistance) or (group and group.MinDistance) or FallTuning.MinDistance
-			local damageMultiplier = (custom and custom.DamageMultiplier) or (group and group.DamageMultiplier) or FallTuning.DamageMultiplier
-			local lethalDistance = options.LethalDistance or FallTuning.LethalDistance
-			local curveExponent = options.Curve or FallTuning.Curve
-			local materialsDamage: MaterialsDamageOptions = options.MaterialsDamage or {}
-
-			print("[FallService] raw FloorMaterial at landing:", humanoid.FloorMaterial)
-			local landingMaterial = resolveLandingMaterial(character, entry.RootPart, humanoid.FloorMaterial)
-			print("[FallService] resolved landing material:", landingMaterial)
-			local materialMultiplier = materialsDamage[landingMaterial.Name]
-
-			local damage = 0
-			local equivalentDistance = 0
-
-			if new == Enum.HumanoidStateType.Swimming or materialMultiplier == 0 then
-				damage = 0
-			else
-				local gravity = Workspace.Gravity
-				damage, equivalentDistance = calculateDamage(
-					entry.PeakDownwardVelocity,
-					gravity,
-					minDistance,
-					damageMultiplier * (materialMultiplier or 1),
-					lethalDistance,
-					curveExponent
-				)
-			end
-
-			if damage > 0 and humanoid.Health > 0 then
-				humanoid:TakeDamage(damage)
-			end
-
-			if entry.FallSignal then
-				entry.FallSignal:Fire({
-					PeakFallSpeed = entry.PeakDownwardVelocity,
-					EquivalentDistance = equivalentDistance,
-					Damage = damage,
-					LandingMaterial = landingMaterial,
-				})
-			end
-
-			if entry.Player then
-				CombatEvents.FallImpact:Fire(entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial)
-				FallFeedbackSync:FireAllClients("FallImpact", entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial) -- ADD
-			end
-
-
-			if humanoid.Health > 0 then
-				RagdollAPI:Unragdoll(entry.Player.Character)
-			end
-			entry.PeakDownwardVelocity = 0
+			handleLanding(character, entry, new)
 		end
 	end)
 	table.insert(entry.Connections, stateConn)
@@ -300,10 +313,14 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 	return entry
 end
 
+local landingRayParams = RaycastParams.new()
+landingRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
 RunService.Heartbeat:Connect(function()
 	for character, entry in pairs(characterEntries) do
 		if entry.Enabled and entry.IsFalling then
-			local downwardSpeed = -entry.RootPart.AssemblyLinearVelocity.Y
+			local velocity = entry.RootPart.AssemblyLinearVelocity
+			local downwardSpeed = -velocity.Y
 			if downwardSpeed > entry.PeakDownwardVelocity then
 				entry.PeakDownwardVelocity = downwardSpeed
 			end
@@ -314,10 +331,22 @@ RunService.Heartbeat:Connect(function()
 				if downwardSpeed >= fastFallVelocity then
 					entry.FastFallSignaled = true
 					if entry.Player then
-						RagdollAPI:Ragdoll(entry.Player.Character, "Manual")
+						RagdollAPI:Ragdoll(character, "Manual")
 						CombatEvents.FastFallBegan:Fire(entry.Player, downwardSpeed)
-						FallFeedbackSync:FireAllClients("FastFallBegan", entry.Player, downwardSpeed) -- ADD
+						FallFeedbackSync:FireAllClients("FastFallBegan", entry.Player, downwardSpeed)
 					end
+				end
+			end
+
+			-- PlatformStand (set by RagdollController.Enter) stops the engine from ever
+			-- firing Landed on its own -- StateChanged above will never see it while
+			-- ragdolled. Detect the landing ourselves: grounded (short downward raycast)
+			-- and no longer meaningfully falling.
+			if RagdollAPI:IsRagdolled(character) then
+				landingRayParams.FilterDescendantsInstances = { character }
+				local hit = Workspace:Raycast(entry.RootPart.Position, Vector3.new(0, -4, 0), landingRayParams)
+				if hit and downwardSpeed < 4 then
+					handleLanding(character, entry, nil)
 				end
 			end
 		end

@@ -24,4 +24,6 @@ return {
 	MaxImpactShakeMagnitude = 6,
 	MaxImpactShakeDuration = 0.5,
 	MaxAmbientShakeMagnitude = 1.5,
+
+	RagdollOnLandingDuration = 3, -- seconds to ragdoll on landing (if alive) before auto-wake, math.huge = never auto-wake
 }

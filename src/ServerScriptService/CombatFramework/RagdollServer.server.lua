@@ -131,7 +131,19 @@ local function onPlayerAdded(player: Player)
 		print("[CombatFramework] CharacterRemoving fired")
 		if RagdollController.IsRagdolled(character) and RagdollController.GetCause(character) == "Death" then
 			print("[CombatFramework] CharacterRemoving: creating corpse from ragdolled death")
-			CorpseHandler.CreateFromCharacter(character)
+
+			-- Stop the original's impact/scrape tracking right at the handoff point,
+			-- deterministically -- don't wait on Destroying's timing.
+			RagdollSounds.StopTracking(character)
+
+			local corpse = CorpseHandler.CreateFromCharacter(character)
+			if corpse then
+				-- ASSUMPTION: CreateFromCharacter returns the newly-created corpse Model.
+				-- I don't have CorpseHandler.lua in front of me to confirm this -- if it
+				-- returns something else (or nothing), point me at that file and I'll
+				-- adjust this call to match whatever it actually hands back.
+				RagdollSounds.TrackCorpse(corpse)
+			end
 		end
 	end)
 end
