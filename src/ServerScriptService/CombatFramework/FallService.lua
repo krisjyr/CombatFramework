@@ -61,10 +61,12 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local CombatFramework = ReplicatedStorage:WaitForChild("CombatFramework")
+local RagdollAPI = require(ServerScriptService.CombatFramework.RagdollAPI)
 local Signal = require(ReplicatedStorage.Packages.namedsignal)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 local FallTuning = require(CombatFramework.Shared.Config.FallTuning)
@@ -286,6 +288,10 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 				FallFeedbackSync:FireAllClients("FallImpact", entry.Player, entry.PeakDownwardVelocity, damage, landingMaterial) -- ADD
 			end
 
+
+			if humanoid.Health > 0 then
+				RagdollAPI:Unragdoll(entry.Player.Character)
+			end
 			entry.PeakDownwardVelocity = 0
 		end
 	end)
@@ -308,6 +314,7 @@ RunService.Heartbeat:Connect(function()
 				if downwardSpeed >= fastFallVelocity then
 					entry.FastFallSignaled = true
 					if entry.Player then
+						RagdollAPI:Ragdoll(entry.Player.Character, "Manual")
 						CombatEvents.FastFallBegan:Fire(entry.Player, downwardSpeed)
 						FallFeedbackSync:FireAllClients("FastFallBegan", entry.Player, downwardSpeed) -- ADD
 					end

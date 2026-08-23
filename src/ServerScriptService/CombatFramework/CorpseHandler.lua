@@ -150,14 +150,26 @@ end
 --- starts settle/anchor/lifetime tracking on the CLONE. Returns the corpse Model. Caller
 --- (RagdollServer.server.lua) is responsible for cleaning up the original `character`.
 function CorpseHandler.CreateFromCharacter(character: Model): Model?
-	if not character.Parent then
+	if not character then
 		return nil
 	end
 
-    character.Archivable = true
-	local corpse = character:Clone()
+	-- NOTE: Parent is already nil by the time CharacterRemoving fires in this project
+	-- (confirmed) — the instance is still alive/clonable for a brief window after being
+	-- unparented but before actually being destroyed, so don't gate on character.Parent
+	-- here like you normally would.
 
-    print(corpse, character)
+	-- Clone() refuses to copy a Model with Archivable = false (some projects turn this off
+	-- on player characters as an anti-exploit measure) — force it on just for the clone.
+	character.Archivable = true
+
+	local ok, corpse = pcall(function()
+		return character:Clone()
+	end)
+	if not ok or not corpse then
+		warn(`CorpseHandler: failed to clone character for corpse: {corpse}`)
+		return nil
+	end
 	corpse.Name = character.Name .. "_Corpse"
 	corpse.Parent = getCorpsesFolder()
 
@@ -170,6 +182,48 @@ function CorpseHandler.CreateFromCharacter(character: Model): Model?
 	if rootPart then
 		pcall(function()
 			rootPart:SetNetworkOwner(nil)
+		end)
+	end
+
+	-- NOTE: no IKControl handling here — confirmed those instances are client-created and
+	-- never exist on the server's copy of the character, so there's nothing for a
+	-- server-side Clone() to inherit or disable. If a corpse looks like its limbs "drift"
+	-- right after creation, that's a snapshot of the ORIGINAL character's client-side IK
+	-- still fighting the ragdoll pose during the (now multi-second) window between death
+	-- and CharacterRemoving — fix belongs in IKLegController.SetEnabled(false), not here.
+
+	local corpseHumanoid = corpse:FindFirstChildOfClass("Humanoid")
+	if corpseHumanoid then
+		-- Zero MaxHealth so any regen system (default or custom) touching this Humanoid
+		-- can't creep its Health back up — regen logic universally gates on
+		-- Health < MaxHealth, which is unsatisfiable once MaxHealth is 0.
+		corpseHumanoid.Health = 0
+		corpseHumanoid.MaxHealth = 0
+		corpseHumanoid.PlatformStand = true
+
+		-- HumanoidStateType isn't a serializable property Clone() preserves — the corpse's
+		-- Humanoid otherwise reinitializes into a normal alive-like state on parenting,
+		-- which re-triggers the same collision suppression on limbs that
+		-- RagdollController.Enter's ChangeState(Physics) fixes for a live ragdoll. A ONE-TIME
+		-- ChangeState here isn't enough though — the Humanoid state machine is still live
+		-- and will happily transition itself away the moment the corpse gets physically
+		-- disturbed (a shove/drag is exactly the kind of thing that triggers a state
+		-- re-evaluation), silently bringing the suppression back. So: disable every other
+		-- state it could reach, force the target state, and re-assert it on any further
+		-- StateChanged as a permanent lock.
+		for _, stateType in ipairs(Enum.HumanoidStateType:GetEnumItems()) do
+			if stateType ~= RagdollTuning.CorpseHumanoidState and stateType ~= Enum.HumanoidStateType.None then
+				pcall(function()
+					corpseHumanoid:SetStateEnabled(stateType, false)
+				end)
+			end
+		end
+
+		corpseHumanoid:ChangeState(RagdollTuning.CorpseHumanoidState)
+		corpseHumanoid.StateChanged:Connect(function(_old, new)
+			if new ~= RagdollTuning.CorpseHumanoidState then
+				corpseHumanoid:ChangeState(RagdollTuning.CorpseHumanoidState)
+			end
 		end)
 	end
 

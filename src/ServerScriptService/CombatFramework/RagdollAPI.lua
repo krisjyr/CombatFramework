@@ -5,11 +5,9 @@
 	This is the ONLY module other systems (a future Weapon/Ballistics hit-resolution, an
 	Explosion's knockback, a Medical "Unconscious" status, an admin/CMDR command) should
 	call to ragdoll something. It wraps RagdollController (which just builds/tears down
-	physics) with the higher-level policy: auto wake-up timers for non-lethal ragdolls,
-	and — for "Death" — handing off to CorpseHandler for a persistent clone and then
-	destroying the original character (this project's respawn flow destroys the dead
-	Character on respawn, so the original can't be relied on to persist as the corpse
-	itself; see CorpseHandler.lua's header).
+	physics) with the higher-level policy: auto wake-up timers for non-lethal ragdolls.
+	"Death" just ragdolls — RagdollServer.server.lua is what clones a corpse and destroys
+	the original, and it does that at RESPAWN time, not here (see that file).
 
 	Same "call with :" table-function shape as FallService.lua (Ch 14's own
 	CreateWeapon()/CreateStatus() convention) so it reads consistently across the codebase.
@@ -44,16 +42,8 @@ export type RagdollRequestOptions = {
 -- the wake-up scheduling, this module just needs to be able to ask for it).
 local wakeUpScheduler: ((character: Model, duration: number) -> ())? = nil
 
--- Filled in by RagdollServer.server.lua, backed by CorpseHandler.CreateFromCharacter.
--- Returns the corpse clone (or nil if it couldn't be created).
-local corpseHandoff: ((character: Model) -> Model?)? = nil
-
 function RagdollAPI._bindWakeUpScheduler(fn: (character: Model, duration: number) -> ())
 	wakeUpScheduler = fn
-end
-
-function RagdollAPI._bindCorpseHandoff(fn: (character: Model) -> Model?)
-	corpseHandoff = fn
 end
 
 local function resolveCharacter(characterOrPlayer: Instance): Model?
@@ -84,18 +74,10 @@ function RagdollAPI:Ragdoll(characterOrPlayer: Instance, cause: RagdollControlle
 	})
 
 	if cause == "Death" then
-		if corpseHandoff then
-			corpseHandoff(character)
-		end
-		-- One frame's grace so anything still reacting to this tick's RagdollBegan/death
-		-- (e.g. a kill-feed listener reading final part positions) sees a valid character
-		-- before it's gone. The corpse clone above already captured everything that
-		-- matters for persistence.
-		task.defer(function()
-			if character.Parent then
-				character:Destroy()
-			end
-		end)
+		-- No clone/destroy here anymore — RagdollServer.server.lua clones the corpse and
+		-- destroys this original once the player actually RESPAWNS (CharacterAdded), not
+		-- immediately on death, so the ragdoll stays the live, visible body in the
+		-- meantime rather than instantly being swapped for a static clone.
 		return
 	end
 

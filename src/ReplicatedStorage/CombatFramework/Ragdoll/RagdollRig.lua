@@ -3,15 +3,17 @@
 	RagdollRig.lua
 
 	Pure rig plumbing: disables the ragdoll-relevant Motor6Ds (handing control to the
-	pre-existing IK constraints DOGU15 already has for most joints — see RagdollJoints.lua's
-	header for why that's safe/correct), builds temporary constraints for the two joints
-	that don't have a pre-built one (Waist, Root), moves every body part into a dedicated
+	pre-existing IK constraints DOGU15 already has for most joints), builds temporary
+	constraints for the two joints that don't have a pre-built one (Waist, Root), applies
+	RagdollConstraintLimits' angle/friction numbers to every joint's constraint (restoring
+	whatever it had before on Teardown), and moves every body part into a dedicated
 	collision group so CanCollide actually takes effect regardless of whatever locomotion
-	collision rules the character's parts normally live under, and reverses all of it on
-	Teardown.
+	collision rules the character's parts normally live under.
 
 	Knows nothing about damage, death, corpses, or the rest of the framework —
-	RagdollController owns that.
+	RagdollController owns that (including forcing HumanoidStateType.Physics, which is what
+	actually stops Roblox's own alive-Humanoid collision suppression on limbs — CanCollide/
+	CollisionGroup alone weren't enough for that case).
 
 	UNIVERSAL BY DESIGN: everything here operates on BasePart (Motor6D.Part0/Part1,
 	Attachment, Constraint, CanCollide, CollisionGroup) — none of it cares whether the parts
@@ -27,22 +29,41 @@ local RagdollTuning = require(script.Parent.Parent.Shared.Config.RagdollTuning)
 
 local ExistingJoints = RagdollJoints.Existing
 local FallbackJoints = RagdollJoints.Fallback
+local RagdollConstraintLimits = RagdollJoints.ConstraintLimits
 
 local RagdollRig = {}
 
+type SavedBallSocketLimits = {
+	Kind: "BallSocket",
+	UpperAngle: number,
+	TwistLowerAngle: number,
+	TwistUpperAngle: number,
+	LimitsEnabled: boolean,
+	TwistLimitsEnabled: boolean,
+}
+
+type SavedHingeLimits = {
+	Kind: "Hinge",
+	LowerAngle: number,
+	UpperAngle: number,
+	Restitution: number,
+	LimitsEnabled: boolean,
+}
+
+type SavedLimits = SavedBallSocketLimits | SavedHingeLimits
+
 export type BuiltRig = {
 	Motor6Ds: { Motor6D }, -- disabled, restored on Teardown
-	ReusedConstraints: { Constraint }, -- pre-existing rig constraints we just verified/left running
+	ReusedConstraints: { Constraint }, -- pre-existing rig constraints; limits restored, left running
 	CreatedConstraints: { Constraint }, -- Waist/Root — built by us, destroyed on Teardown
 	CreatedAttachments: { Attachment }, -- Waist/Root's own attachments — destroyed on Teardown
-	Frictions: { AngularVelocity }, -- one per joint (both reused and created), destroyed on Teardown
+	Frictions: { AngularVelocity }, -- one per joint, destroyed on Teardown
+	PreviousLimits: { [Constraint]: SavedLimits }, -- ReusedConstraints only
 	Parts: { BasePart }, -- every collidable body part, collision/group restored on Teardown
 	PreviousCanCollide: { [BasePart]: boolean },
 	PreviousCollisionGroup: { [BasePart]: string },
 }
 
--- Registering an already-registered group errors, so this is guarded and only ever run
--- once per server (module-level, not per-Build call).
 do
 	local ok, err = pcall(function()
 		PhysicsService:RegisterCollisionGroup(RagdollTuning.RagdollCollisionGroup)
@@ -50,6 +71,12 @@ do
 	if not ok and not tostring(err):find("already exists") then
 		warn(`RagdollRig: failed to register collision group "{RagdollTuning.RagdollCollisionGroup}": {err}`)
 	end
+	-- Defensive: a fresh group defaults to colliding with everything, but if this project
+	-- has project-wide setup elsewhere that disables cross-group collision broadly, force
+	-- the pairing that actually matters (ragdolls hitting the floor) back on explicitly.
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(RagdollTuning.RagdollCollisionGroup, "Default", true)
+	end)
 end
 
 local function findJointMotors(character: Model): { Motor6D }
@@ -66,9 +93,6 @@ local function collectBodyParts(character: Model): { BasePart }
 	local parts = {}
 	for _, descendant in ipairs(character:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Name ~= "HumanoidRootPart" then
-			-- Skip the framework's own zero-mass helper parts (e.g. CollisionPart is a
-			-- deliberate separate hitbox, not a limb) and the *NoCollision spacer parts
-			-- the stock rig uses to prevent adjacent-limb self-collision.
 			if not descendant.Name:match("NoCollision$") then
 				table.insert(parts, descendant)
 			end
@@ -78,6 +102,7 @@ local function collectBodyParts(character: Model): { BasePart }
 end
 
 local function addFriction(rig: BuiltRig, jointName: string, attachment0: Attachment, frictionTorque: number?)
+	print(`RagdollRig: adding friction for {jointName} (Attachment0={attachment0:GetFullName()})`)
 	local friction = Instance.new("AngularVelocity")
 	friction.Name = "RagdollFriction_" .. jointName
 	friction.Attachment0 = attachment0
@@ -89,11 +114,69 @@ local function addFriction(rig: BuiltRig, jointName: string, attachment0: Attach
 	table.insert(rig.Frictions, friction)
 end
 
---- Disables every ragdoll-relevant Motor6D, enables collision on every real body part, and
---- moves those parts into the dedicated ragdoll collision group. For joints DOGU15 already
---- has a constraint for, that constraint is left exactly as authored (just confirmed
---- Enabled) — nothing new is built there. Only Waist/Root get a constraint built on the
---- fly. Returns a BuiltRig handle to pass to Teardown().
+--- Applies RagdollConstraintLimits[jointName] to an already-Enabled reused constraint,
+--- saving whatever it had beforehand into rig.PreviousLimits for Teardown to restore.
+local function applyLimitsToReusedConstraint(rig: BuiltRig, jointName: string, constraint: Constraint)
+	local limits = RagdollConstraintLimits[jointName]
+	if not limits then
+		warn(`RagdollRig: no RagdollConstraintLimits entry for "{jointName}" — leaving its constraint's limits untouched.`)
+		return
+	end
+
+	if constraint:IsA("BallSocketConstraint") then
+		rig.PreviousLimits[constraint] = {
+			Kind = "BallSocket",
+			UpperAngle = constraint.UpperAngle,
+			TwistLowerAngle = constraint.TwistLowerAngle,
+			TwistUpperAngle = constraint.TwistUpperAngle,
+			LimitsEnabled = constraint.LimitsEnabled,
+			TwistLimitsEnabled = constraint.TwistLimitsEnabled,
+		}
+		constraint.LimitsEnabled = true
+		constraint.UpperAngle = limits.UpperAngle
+		constraint.TwistLimitsEnabled = true
+		constraint.TwistLowerAngle = limits.TwistLowerAngle
+		constraint.TwistUpperAngle = limits.TwistUpperAngle
+	elseif constraint:IsA("HingeConstraint") then
+		-- Hinge has no separate cone angle — only the Twist* pair applies, mapped onto
+		-- Hinge's own LowerAngle/UpperAngle. limits.UpperAngle is unused for Hinge joints.
+		rig.PreviousLimits[constraint] = {
+			Kind = "Hinge",
+			LowerAngle = constraint.LowerAngle,
+			UpperAngle = constraint.UpperAngle,
+			Restitution = constraint.Restitution,
+			LimitsEnabled = constraint.LimitsEnabled,
+		}
+		constraint.LimitsEnabled = true
+		constraint.LowerAngle = limits.TwistLowerAngle
+		constraint.UpperAngle = limits.TwistUpperAngle
+		constraint.Restitution = limits.Restitution or 0
+	end
+end
+
+local function restoreReusedConstraintLimits(rig: BuiltRig, constraint: Constraint)
+	local saved = rig.PreviousLimits[constraint]
+	if not saved or not constraint.Parent then
+		return
+	end
+	if saved.Kind == "BallSocket" and constraint:IsA("BallSocketConstraint") then
+		constraint.UpperAngle = saved.UpperAngle
+		constraint.TwistLowerAngle = saved.TwistLowerAngle
+		constraint.TwistUpperAngle = saved.TwistUpperAngle
+		constraint.LimitsEnabled = saved.LimitsEnabled
+		constraint.TwistLimitsEnabled = saved.TwistLimitsEnabled
+	elseif saved.Kind == "Hinge" and constraint:IsA("HingeConstraint") then
+		constraint.LowerAngle = saved.LowerAngle
+		constraint.UpperAngle = saved.UpperAngle
+		constraint.Restitution = saved.Restitution
+		constraint.LimitsEnabled = saved.LimitsEnabled
+	end
+end
+
+--- Disables every ragdoll-relevant Motor6D, applies RagdollConstraintLimits to every
+--- joint's constraint (reused or newly-built), and enables collision (CanCollide +
+--- dedicated CollisionGroup) on every real body part. Returns a BuiltRig handle to pass to
+--- Teardown().
 function RagdollRig.Build(character: Model): BuiltRig
 	local rig: BuiltRig = {
 		Motor6Ds = {},
@@ -101,6 +184,7 @@ function RagdollRig.Build(character: Model): BuiltRig
 		CreatedConstraints = {},
 		CreatedAttachments = {},
 		Frictions = {},
+		PreviousLimits = {},
 		Parts = {},
 		PreviousCanCollide = {},
 		PreviousCollisionGroup = {},
@@ -122,10 +206,12 @@ function RagdollRig.Build(character: Model): BuiltRig
 			if constraint and constraint:IsA(existing.ConstraintClass) then
 				(constraint :: any).Enabled = true
 				table.insert(rig.ReusedConstraints, constraint)
+				applyLimitsToReusedConstraint(rig, motor.Name, constraint :: Constraint)
 
 				local attachment0 = (constraint :: any).Attachment0 :: Attachment?
+				local limits = RagdollConstraintLimits[motor.Name]
 				if attachment0 then
-					addFriction(rig, motor.Name, attachment0, existing.FrictionTorque)
+					addFriction(rig, motor.Name, attachment0, limits and limits.MaxFrictionTorque)
 				end
 			else
 				warn(`RagdollRig: expected {existing.ConstraintName} ({existing.ConstraintClass}) next to {motor.Name} but it's missing/wrong class — that joint will be limp (no limits, no collision-driven correction) until this is fixed.`)
@@ -134,8 +220,12 @@ function RagdollRig.Build(character: Model): BuiltRig
 		end
 
 		-- Fallback path: Waist / Root, no pre-built constraint exists.
-		local fallback = FallbackJoints[motor.Name]
-		if not fallback then
+		if not FallbackJoints[motor.Name] then
+			continue
+		end
+		local limits = RagdollConstraintLimits[motor.Name]
+		if not limits then
+			warn(`RagdollRig: no RagdollConstraintLimits entry for fallback joint "{motor.Name}" — skipping, it will be limp.`)
 			continue
 		end
 
@@ -157,15 +247,15 @@ function RagdollRig.Build(character: Model): BuiltRig
 		socket.Attachment0 = attachment0
 		socket.Attachment1 = attachment1
 		socket.LimitsEnabled = true
-		socket.UpperAngle = fallback.UpperAngle
+		socket.UpperAngle = limits.UpperAngle
 		socket.TwistLimitsEnabled = true
-		socket.TwistLowerAngle = fallback.TwistLower
-		socket.TwistUpperAngle = fallback.TwistUpper
+		socket.TwistLowerAngle = limits.TwistLowerAngle
+		socket.TwistUpperAngle = limits.TwistUpperAngle
 		socket.Enabled = true
 		socket.Parent = part0
 		table.insert(rig.CreatedConstraints, socket)
 
-		addFriction(rig, motor.Name, attachment0, fallback.FrictionTorque)
+		addFriction(rig, motor.Name, attachment0, limits.MaxFrictionTorque)
 	end
 
 	for _, part in ipairs(collectBodyParts(character)) do
@@ -181,13 +271,14 @@ function RagdollRig.Build(character: Model): BuiltRig
 end
 
 --- Destroys everything Build() created (friction + Waist/Root constraint/attachments),
---- leaves the rig's own pre-built constraints exactly as they were (still Enabled = true,
---- same as before ragdoll — they're inert again once their Motor6D is re-enabled), and
---- re-enables the Motor6Ds. Restores CanCollide and CollisionGroup to whatever they were
---- before Build() ran.
+--- restores every reused constraint's original limits, re-enables the Motor6Ds, and
+--- restores CanCollide/CollisionGroup.
 function RagdollRig.Teardown(rig: BuiltRig)
 	for _, friction in ipairs(rig.Frictions) do
 		friction:Destroy()
+	end
+	for _, constraint in ipairs(rig.ReusedConstraints) do
+		restoreReusedConstraintLimits(rig, constraint)
 	end
 	for _, constraint in ipairs(rig.CreatedConstraints) do
 		constraint:Destroy()

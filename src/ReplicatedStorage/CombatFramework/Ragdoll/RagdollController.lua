@@ -59,6 +59,17 @@ type ActiveEntry = {
 	PreviousAutoSetNetworkOwner: boolean,
 }
 
+-- NOTE ON IK: this module does NOT (and can't) touch IKControl instances
+-- (RightLegIK/LeftLegIK/RightHandIK/LeftHandIK/HeadLookIK) — confirmed via debug print
+-- that humanoid:FindFirstChild(name) finds nothing server-side for these; they're created
+-- client-side (IKLegController.lua, presumably Instance.new("IKControl")) and never exist
+-- on the server at all. IK shutdown is entirely IKVisualsBootstrap.client.lua's job, keyed
+-- off the same "Ragdolled" Attribute this module sets — see that file. If limbs still
+-- drift/teleport while ragdolled or right after a corpse is cloned, the fix belongs in
+-- IKLegController.SetEnabled(false): setting ik.Enabled = false there (not just Weight = 0)
+-- is worth trying, since Weight only blends the solver's output at 0%, it doesn't stop the
+-- solver itself from running against a joint chain whose Motor6Ds are now disabled.
+
 local active: { [Model]: ActiveEntry } = {}
 
 function RagdollController.IsRagdolled(character: Model): boolean
@@ -89,6 +100,19 @@ function RagdollController.Enter(character: Model, options: EnterOptions)
 
 	local rig = RagdollRig.Build(character)
 
+	-- PlatformStand/AutoRotate FIRST: flipping PlatformStand on a Humanoid that's been
+	-- driving movement via WalkSpeed/:Move() (this project's MomentumController, not a
+	-- physical force) appears to zero the assembly's velocity as part of handing off
+	-- control — reapplying the captured velocity has to happen AFTER that, or it just gets
+	-- wiped out immediately, which is why ragdolling while moving was crumpling in place
+	-- instead of tumbling with momentum.
+	humanoid.AutoRotate = false
+	humanoid.PlatformStand = true
+	-- Roblox suppresses collision on an alive Humanoid's own limbs based on HumanoidState,
+	-- independent of CanCollide/CollisionGroup — PlatformStand=true wasn't reliably enough
+	-- on its own to lift that suppression, forcing Physics state directly is what does it.
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
 	for _, part in ipairs(rig.Parts) do
 		part.AssemblyLinearVelocity = capturedLinearVelocity
 		part.AssemblyAngularVelocity = capturedAngularVelocity
@@ -117,9 +141,6 @@ function RagdollController.Enter(character: Model, options: EnterOptions)
 			end
 		end
 	end
-
-	humanoid.AutoRotate = false
-	humanoid.PlatformStand = true
 
 	local previousAutoOwner = rootPart:GetNetworkOwnershipAuto()
 	local previousOwner: Player? = nil

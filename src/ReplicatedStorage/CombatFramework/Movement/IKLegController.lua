@@ -713,12 +713,14 @@ function IKLegController.SetEnabled(
 		-- Disable leg IK completely.
 		for side, ik in pairs(self.LegIK) do
 			ik.Weight = 0
+			ik.Enabled = false
 			self._currentWeight[side] = 0
 		end
 
 		-- Disable hand IK completely.
 		for side, ik in pairs(self.HandIK) do
 			ik.Weight = 0
+			ik.Enabled = false
 
 			if self._currentArmWeight then
 				self._currentArmWeight[side] = 0
@@ -737,8 +739,24 @@ function IKLegController.SetEnabled(
 		if self.HeadIK then
 			self.HeadIK.Weight = 0
 			self.HeadIK.Offset = CFrame.identity
+			self.HeadIK.Enabled = false
 			self._headWeight = 0
 			self._headLeanRollDeg = 0
+		end
+	elseif enabled then
+		-- Re-enable leg IK.
+		for side, ik in pairs(self.LegIK) do
+			ik.Enabled = true
+		end
+
+		-- Re-enable hand IK.
+		for side, ik in pairs(self.HandIK) do
+			ik.Enabled = true
+		end
+
+		-- Re-enable head IK.
+		if self.HeadIK then
+			self.HeadIK.Enabled = true
 		end
 	end
 end

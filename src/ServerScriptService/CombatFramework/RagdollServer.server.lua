@@ -3,17 +3,22 @@
 	RagdollServer.server.lua  (Ch 1.3 Server Authority, Ch 2.2 "Jumping/Falling", Ch 7)
 
 	Bootstrap that:
-	  1. Hooks every player's Humanoid.Died -> RagdollAPI:Ragdoll(character, "Death"), which
-	     (via the bindings below) clones a persistent corpse through
-	     CorpseHandler.CreateFromCharacter and destroys the original.
+	  1. Hooks every player's Humanoid.Died -> RagdollAPI:Ragdoll(character, "Death"), and
+	     separately hooks Player.CharacterRemoving -> CorpseHandler.CreateFromCharacter for
+	     any character that died. CharacterRemoving fires while the OLD character is still
+	     valid, right as Roblox is about to tear it down for the respawn — CharacterAdded on
+	     the NEW character is too late, the engine has already destroyed the old one by then.
+	     No manual :Destroy() needed afterward; Roblox is already removing it as part of
+	     this same event.
 	  2. Implements the wake-up scheduler RagdollAPI calls into for non-lethal ragdolls
 	     ("Impulse"/timed "Manual") — repositions the character onto the floor beneath
 	     wherever it landed, forces the Prone stance (Ch 2.2), rebuilds the Motor6Ds via
 	     RagdollController.Exit, and fires CombatEvents.WokeUp.
 
-	Reuse for AI (Ch 13): `setupDeathHook(character)` below doesn't touch Player at all
-	except to resolve it for CombatEvents payloads — a future AI entity just needs its own
-	call to setupDeathHook(aiCharacter) once its Humanoid exists.
+	Reuse for AI (Ch 13): AI has no Player/CharacterRemoving to hang corpse-creation off of
+	— a future AI entity should call CorpseHandler.CreateFromCharacter directly whenever it
+	considers the entity's lifecycle over, and setupDeathHook below still works unchanged
+	for wiring up its ragdoll-on-death.
 ]]
 
 local Players = game:GetService("Players")
@@ -101,25 +106,33 @@ local function scheduleWakeUp(character: Model, duration: number)
 end
 
 RagdollAPI._bindWakeUpScheduler(scheduleWakeUp)
-RagdollAPI._bindCorpseHandoff(CorpseHandler.CreateFromCharacter)
 
 --- Reusable for AI (Ch 13) — see file-top note.
 local function setupDeathHook(character: Model)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 	humanoid.Died:Once(function()
+		print("[CombatFramework] Humanoid.Died fired")
 		RagdollAPI:Ragdoll(character, "Death")
 	end)
 end
 
-local function onCharacterAdded(character: Model)
-	setupDeathHook(character)
-end
-
 local function onPlayerAdded(player: Player)
-	player.CharacterAdded:Connect(onCharacterAdded)
+	player.CharacterAdded:Connect(setupDeathHook)
 	if player.Character then
-		onCharacterAdded(player.Character)
+		setupDeathHook(player.Character)
 	end
+
+	-- Fires while the OLD character is still valid/parented, right as Roblox is about to
+	-- remove it for the respawn (death or leaving) — CharacterAdded on the NEW character
+	-- is too late, the old one is already destroyed by then (confirmed: oldCharacter.Parent
+	-- was already nil by the time CharacterAdded fired).
+	player.CharacterRemoving:Connect(function(character: Model)
+		print("[CombatFramework] CharacterRemoving fired")
+		if RagdollController.IsRagdolled(character) and RagdollController.GetCause(character) == "Death" then
+			print("[CombatFramework] CharacterRemoving: creating corpse from ragdolled death")
+			CorpseHandler.CreateFromCharacter(character)
+		end
+	end)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
