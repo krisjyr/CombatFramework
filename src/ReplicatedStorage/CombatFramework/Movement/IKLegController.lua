@@ -1352,7 +1352,6 @@ function IKLegController.Update(self: IKLegControllerInstance, dt: number, dista
 	local grounded =
 		typeof(stance) == "string"
 		and GROUNDED_STANCES[stance] == true
-		and stance ~= "Prone"
 		and state ~= Enum.HumanoidStateType.Freefall
 		and state ~= Enum.HumanoidStateType.Jumping
 		and state ~= Enum.HumanoidStateType.Swimming

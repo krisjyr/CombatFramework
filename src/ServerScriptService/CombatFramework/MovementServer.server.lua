@@ -114,6 +114,8 @@ StanceRequest.OnServerEvent:Connect(function(player: Player, newStance: unknown)
 	if typeof(newStance) ~= "string" then
 		return
 	end
+
+	local character = player.Character
 	if character and RagdollController.IsRagdolled(character) then
 		return
 	end

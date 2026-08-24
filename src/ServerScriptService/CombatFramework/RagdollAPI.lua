@@ -117,4 +117,12 @@ function RagdollAPI:IsRagdolled(characterOrPlayer: Instance): boolean
 	return character ~= nil and RagdollController.IsRagdolled(character)
 end
 
+function RagdollAPI:GetCause(characterOrPlayer: Instance): RagdollController.RagdollCause?
+	local character = resolveCharacter(characterOrPlayer)
+	if not character then
+		return nil
+	end
+	return RagdollController.GetCause(character)
+end
+
 return RagdollAPI

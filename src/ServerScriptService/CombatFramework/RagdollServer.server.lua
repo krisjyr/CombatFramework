@@ -30,6 +30,9 @@ local RagdollController = require(CombatFramework.Ragdoll.RagdollController)
 local RagdollTuning = require(CombatFramework.Shared.Config.RagdollTuning)
 local CombatEvents = require(CombatFramework.Shared.CombatEvents)
 
+local Remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
+local StanceCorrection = Remotes:WaitForChild("StanceCorrection") :: RemoteEvent
+
 local RagdollAPI = require(script.Parent.RagdollAPI)
 local CorpseHandler = require(script.Parent.CorpseHandler)
 local ControllerRegistry = require(script.Parent.ControllerRegistry)
@@ -90,6 +93,7 @@ local function wakeUp(character: Model)
 			-- Wakes up prone (per spec) rather than standing — the player can stand up
 			-- through the normal Prone -> Crouching -> Standing transitions from here.
 			entry.Character:ForceSetStance("Prone")
+			StanceCorrection:FireClient(player, "Prone")
 		end
 		CombatEvents.WokeUp:Fire(player)
 	end

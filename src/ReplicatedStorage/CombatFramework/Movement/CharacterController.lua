@@ -170,6 +170,7 @@ function CharacterController.ForceSetStance(self: CharacterControllerInstance, s
 	local old = self.CurrentStance
 	self.CurrentStance = stanceName
 	self:_applyStanceModifiers(stanceName)
+	self.Character:SetAttribute("CombatStance", stanceName)   -- ADDED
 	if not Stances[stanceName].CanLean and self.LeanState ~= "None" then
 		self:TrySetLean("None")
 	end

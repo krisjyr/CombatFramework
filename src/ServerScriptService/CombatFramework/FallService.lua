@@ -80,6 +80,7 @@ export type FallOptions = {
 	LethalDistance: number?,
 	Curve: number?,
 	FastFallVelocity: number?,
+	RagdollSlideFastFallVelocity: number?,
 }
 
 export type FallEventData = {
@@ -106,6 +107,10 @@ type CharacterEntry = {
 	FastFallSignaled: boolean,
 	Connections: { RBXScriptConnection },
 	FallSignal: any?,
+	PeakSlideSpeed: number,
+	PreviousRagdollSpeed: number?,
+	SlideFastFallSignaled: boolean,
+	LastSlideImpactTime: number,
 }
 
 local FallService = {}
@@ -262,6 +267,153 @@ local function handleLanding(character: Model, entry: CharacterEntry, landedHuma
 	entry.PeakDownwardVelocity = 0
 end
 
+local function updateRagdollSlide(character: Model, entry: CharacterEntry, now: number)
+	if not entry.Enabled then
+		return
+	end
+
+	if not RagdollAPI:IsRagdolled(character) or RagdollAPI:GetCause(character) == "Death" then
+		if entry.SlideFastFallSignaled then
+			entry.SlideFastFallSignaled = false
+			if entry.Player then
+				CombatEvents.FastFallEnded:Fire(entry.Player)
+				FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player)
+			end
+		end
+		entry.PeakSlideSpeed = 0
+		entry.PreviousRagdollSpeed = nil
+		return
+	end
+
+	local velocity = entry.RootPart.AssemblyLinearVelocity
+	local speed = velocity.Magnitude
+
+	local previous = entry.PreviousRagdollSpeed or speed
+	local decel = previous - speed
+	entry.PreviousRagdollSpeed = speed
+
+	if speed > entry.PeakSlideSpeed then
+		entry.PeakSlideSpeed = speed
+	end
+
+	local options = getEffectiveOptions(character)
+	local slideFastFallVelocity = options.RagdollSlideFastFallVelocity
+		or FallTuning.RagdollSlideFastFallVelocity
+		or (options.FastFallVelocity or FallTuning.FastFallVelocity)
+
+	-- Same FastFallBegan/Ended events a vertical plummet fires -- see MovementClient
+	-- .client.lua's air-rush-sound + screenshake handling. NOTE: reusing this verbatim
+	-- means a fast ground-slide will also trigger whatever air-rush SOUND is wired to
+	-- FastFallBegan, which may not make sense for something sliding along the ground --
+	-- flagging this rather than assuming; if that reads wrong in-game, the cleanest fix is
+	-- a distinct CombatEvents.RagdollSlideBegan/Ended pair instead of reusing FastFall*.
+	if not entry.SlideFastFallSignaled and speed >= slideFastFallVelocity then
+		entry.SlideFastFallSignaled = true
+		if entry.Player then
+			CombatEvents.FastFallBegan:Fire(entry.Player, speed)
+			FallFeedbackSync:FireAllClients("FastFallBegan", entry.Player, speed)
+		end
+	elseif entry.SlideFastFallSignaled and speed < slideFastFallVelocity * 0.6 then
+		-- 0.6 hysteresis factor so it doesn't flicker on/off right at the threshold --
+		-- arbitrary starting value, tune to taste.
+		entry.SlideFastFallSignaled = false
+		if entry.Player then
+			CombatEvents.FastFallEnded:Fire(entry.Player)
+			FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player)
+		end
+	end
+
+	local minPeak = FallTuning.RagdollSlideMinPeakSpeed or slideFastFallVelocity
+	local stopDeceleration = FallTuning.RagdollSlideStopDeceleration or 20
+	local cooldown = FallTuning.RagdollSlideImpactCooldown or 1
+
+	if decel >= stopDeceleration
+		and entry.PeakSlideSpeed >= minPeak
+		and now - entry.LastSlideImpactTime >= cooldown
+	then
+		entry.LastSlideImpactTime = now
+		entry.IsFalling = false -- in case this stop is what actually ends a fall-then-slide
+
+		local custom = customData[character]
+		local group = groupOfCharacter[character]
+		local minDistance = (custom and custom.MinDistance) or (group and group.MinDistance) or FallTuning.MinDistance
+		local damageMultiplier = (custom and custom.DamageMultiplier) or (group and group.DamageMultiplier) or FallTuning.DamageMultiplier
+		local lethalDistance = options.LethalDistance or FallTuning.LethalDistance
+		local curveExponent = options.Curve or FallTuning.Curve
+		local materialsDamage: MaterialsDamageOptions = options.MaterialsDamage or {}
+
+		local landingMaterial = resolveLandingMaterial(character, entry.RootPart, entry.Humanoid.FloorMaterial)
+		local materialMultiplier = materialsDamage[landingMaterial.Name]
+
+		local damage, equivalentDistance = 0, 0
+		if materialMultiplier ~= 0 then
+			-- Same v²/(2g) curve as a vertical landing, just fed peak SLIDE speed --
+			-- treating "sliding fast then dumping that speed suddenly" as equivalent
+			-- impact energy to falling and landing hard.
+			damage, equivalentDistance = calculateDamage(
+				entry.PeakSlideSpeed,
+				Workspace.Gravity,
+				minDistance,
+				damageMultiplier * (materialMultiplier or 1),
+				lethalDistance,
+				curveExponent
+			)
+		end
+
+		if damage > 0 and entry.Humanoid.Health > 0 then
+			entry.Humanoid:TakeDamage(damage)
+		end
+
+		if entry.FallSignal then
+			entry.FallSignal:Fire({
+				PeakFallSpeed = entry.PeakSlideSpeed,
+				EquivalentDistance = equivalentDistance,
+				Damage = damage,
+				LandingMaterial = landingMaterial,
+			})
+		end
+
+		if entry.Player then
+			-- Reuses the same event FootstepService.client.lua already turns into a
+			-- landing thud + heavy-impact layer -- free consistency with normal falls,
+			-- but ALSO means this can double up with RagdollSounds.lua's own independent
+			-- limb-deceleration impact detection on the same physical stop. Worth
+			-- listening for both in-game and deciding whether that's a good "layered"
+			-- impact or just a redundant double-thud; tune SoundImpactMinSpeed /
+			-- RagdollSlideStopDeceleration apart from each other if it's the latter.
+			CombatEvents.FallImpact:Fire(entry.Player, entry.PeakSlideSpeed, damage, landingMaterial)
+			FallFeedbackSync:FireAllClients("FallImpact", entry.Player, entry.PeakSlideSpeed, damage, landingMaterial)
+		end
+
+		if entry.SlideFastFallSignaled then
+			entry.SlideFastFallSignaled = false
+			if entry.Player then
+				CombatEvents.FastFallEnded:Fire(entry.Player)
+				FallFeedbackSync:FireAllClients("FastFallEnded", entry.Player)
+			end
+		end
+
+		-- Unragdolls on ANY stopped ragdoll this function sees, not just ones FallService
+		-- itself started via fast-fall -- e.g. a weapon-impulse ragdoll that happens to
+		-- slide to a stop on a hill would also wake up here. Safe (Unragdoll's generation
+		-- counter guards duplicate/stale wake calls), but may wake someone up sooner than
+		-- their impulse's own duration intended. Flagging as a judgment call, not fixing
+		-- silently -- if you want this to only apply to FallService-initiated ragdolls,
+		-- gate this block on RagdollAPI:GetCause(character) == "Manual" instead.
+		if entry.Humanoid.Health > 0 and RagdollAPI:IsRagdolled(character) then
+			local duration = FallTuning.RagdollOnLandingDuration
+			if duration < math.huge then
+				task.spawn(function()
+					task.wait(duration)
+					RagdollAPI:Unragdoll(character)
+				end)
+			end
+		end
+
+		entry.PeakSlideSpeed = 0
+	end
+end
+
 local function ensureEntry(character: Model, player: Player?): CharacterEntry
 	local existing = characterEntries[character]
 	if existing then
@@ -285,6 +437,10 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 		FastFallSignaled = false,
 		Connections = {},
 		FallSignal = nil,
+		PeakSlideSpeed = 0,
+		PreviousRagdollSpeed = nil,
+		SlideFastFallSignaled = false,
+		LastSlideImpactTime = 0,
 	}
 	characterEntries[character] = entry
 
@@ -313,10 +469,13 @@ local function ensureEntry(character: Model, player: Player?): CharacterEntry
 	return entry
 end
 
+
+
 local landingRayParams = RaycastParams.new()
 landingRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 RunService.Heartbeat:Connect(function()
+	local now = os.clock()
 	for character, entry in pairs(characterEntries) do
 		if entry.Enabled and entry.IsFalling then
 			local velocity = entry.RootPart.AssemblyLinearVelocity
@@ -345,11 +504,14 @@ RunService.Heartbeat:Connect(function()
 			if RagdollAPI:IsRagdolled(character) then
 				landingRayParams.FilterDescendantsInstances = { character }
 				local hit = Workspace:Raycast(entry.RootPart.Position, Vector3.new(0, -4, 0), landingRayParams)
-				if hit and downwardSpeed < 4 then
+				local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+				if hit and downwardSpeed < 4 and horizontalSpeed < 4 then
 					handleLanding(character, entry, nil)
 				end
 			end
 		end
+
+		updateRagdollSlide(character, entry, now)
 	end
 end)
 
